@@ -1,0 +1,70 @@
+version: '3.8'
+
+services:
+  # Next.js Application + Socket.io Server
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: digitalize_nepal_web
+    restart: always
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - DATABASE_URL=postgresql://postgres:${POSTGRES_PASSWORD:-postgres_password}@db:5432/digitalizenepal?schema=public
+      - JWT_SECRET=${JWT_SECRET:-digitalize_nepal_production_jwt_secret_2026}
+      - ADMIN_JWT_SECRET=${ADMIN_JWT_SECRET:-digitalize_nepal_production_admin_secret_2026}
+      - NEXT_PUBLIC_APP_URL=${NEXT_PUBLIC_APP_URL:-https://app.digitalizenepal.com}
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - internal_net
+    expose:
+      - "3000"
+    volumes:
+      - ./public/uploads:/app/public/uploads
+
+  # PostgreSQL Database
+  db:
+    image: postgres:16-alpine
+    container_name: digitalize_nepal_db
+    restart: always
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres_password}
+      POSTGRES_DB: digitalizenepal
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - internal_net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Nginx Reverse Proxy with SSL and WebSocket Upgrade
+  nginx:
+    image: nginx:alpine
+    container_name: digitalize_nepal_nginx
+    restart: always
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./certbot/conf:/etc/letsencrypt:ro
+      - ./certbot/www:/var/www/certbot:ro
+    depends_on:
+      - web
+    networks:
+      - internal_net
+
+networks:
+  internal_net:
+    driver: bridge
+
+volumes:
+  postgres_data:
+    driver: local

@@ -1,0 +1,127 @@
+// Prisma Schema for Digitalize Nepal Multi-Tenant Platform
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Admin {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  name         String?  @default("Platform Admin")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model Hotel {
+  id           String        @id @default(cuid())
+  name         String
+  slug         String        @unique
+  ownerEmail   String        @unique
+  passwordHash String
+  phone        String?
+  address      String?
+  coverImage   String?
+  status       String        @default("pending") // "pending" | "active" | "expired"
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  
+  menuItems       MenuItem[]
+  orders          Order[]
+  chatMessages    ChatMessage[]
+  feedback        Feedback[]
+  historicalSales HistoricalSale[]
+}
+
+model MenuItem {
+  id          String   @id @default(cuid())
+  hotelId     String
+  hotel       Hotel    @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  category    String   // "Snacks", "Cuisine", "Drink", "Bed Room / Specials", etc.
+  name        String
+  price       Float
+  imageUrl    String?
+  description String?
+  isAvailable Boolean  @default(true)
+  is3dEnabled Boolean  @default(false)
+  modelUrl    String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([hotelId])
+  @@index([category])
+}
+
+model Order {
+  id            String        @id @default(cuid())
+  hotelId       String
+  hotel         Hotel         @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  tableNumber   String
+  customerName  String?
+  customerPhone String?
+  items         String        // JSON stringified: [{ id, name, price, quantity, notes }]
+  totalAmount   Float
+  status        String        @default("received") // "received" | "in_progress" | "done" | "cancelled"
+  notes         String?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  chatMessages  ChatMessage[]
+  feedback      Feedback?
+
+  @@index([hotelId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model ChatMessage {
+  id        String   @id @default(cuid())
+  hotelId   String
+  hotel     Hotel    @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  orderId   String
+  order     Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  sender    String   // "customer" | "staff"
+  message   String
+  createdAt DateTime @default(now())
+
+  @@index([orderId])
+  @@index([hotelId])
+}
+
+model Feedback {
+  id           String   @id @default(cuid())
+  hotelId      String
+  hotel        Hotel    @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  orderId      String   @unique
+  order        Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  rating       Int      // 1 to 5
+  comment      String?
+  customerName String?
+  createdAt    DateTime @default(now())
+
+  @@index([hotelId])
+}
+
+model HistoricalSale {
+  id            String   @id @default(cuid())
+  hotelId       String
+  hotel         Hotel    @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  orderId       String?
+  tableNumber   String
+  customerName  String?
+  customerPhone String?
+  totalAmount   Float
+  items         String   // JSON stringified dishes
+  notes         String?
+  orderDate     DateTime // original order createdAt
+  settledAt     DateTime @default(now())
+
+  @@index([hotelId])
+  @@index([orderDate])
+  @@index([settledAt])
+}

@@ -17,7 +17,7 @@ import {
   Star,
   QrCode,
 } from 'lucide-react';
-import FallingMicrogreens from '@/components/FallingMicrogreens';
+import CulinarySteam from '@/components/CulinarySteam';
 
 export default function HomePage() {
   const [activeRoleTab, setActiveRoleTab] = useState<'customer' | 'staff'>('customer');
@@ -79,14 +79,15 @@ export default function HomePage() {
         {/* Realistic High-End White Ceramic Plate with Native Transparent Seamless Blend */}
         <div className="absolute right-0 bottom-0 pointer-events-none select-none z-0 overflow-hidden w-full lg:w-[80%] xl:w-[75%] h-full max-h-[640px] flex items-end justify-end">
           <img
+            id="hero-dish-img"
             src="/hero-plate.webp"
             alt="Artisan Seared Scallop with Puree and Microgreens"
             className="w-auto h-[88%] max-h-[540px] object-contain object-right-bottom drop-shadow-[0_25px_60px_rgba(0,0,0,0.9)]"
           />
         </div>
 
-        {/* Dynamic Falling Microgreens Animation */}
-        <FallingMicrogreens />
+        {/* Realistic Culinary Steam Rising from Seared Scallop */}
+        <CulinarySteam />
 
         <div className="max-w-7xl w-full mx-auto relative z-20">
           <div className="max-w-xl lg:max-w-2xl text-left">

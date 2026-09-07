@@ -17,6 +17,7 @@ import {
   Star,
   QrCode,
 } from 'lucide-react';
+import FallingMicrogreens from '@/components/FallingMicrogreens';
 
 export default function HomePage() {
   const [activeRoleTab, setActiveRoleTab] = useState<'customer' | 'staff'>('customer');
@@ -71,78 +72,97 @@ export default function HomePage() {
       </header>
 
       {/* Hero Section */}
-      <section className="relative px-6 pt-16 pb-20 lg:pt-24 lg:pb-28 text-center overflow-hidden border-b border-white/[0.06]">
+      <section className="relative px-6 pt-10 pb-16 lg:pt-14 lg:pb-24 text-left overflow-hidden border-b border-white/[0.06]">
         {/* Ambient atmospheric backlight */}
-        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[700px] h-[350px] bg-bronze-400/5 rounded-full blur-[120px] pointer-events-none" />
+        <div className="absolute top-0 left-1/4 w-[700px] h-[350px] bg-bronze-400/5 rounded-full blur-[120px] pointer-events-none" />
 
-        <div className="max-w-4xl mx-auto relative z-10">
-          {/* Subtle Champagne Pill Badge */}
-          <div className="inline-flex items-center space-x-2 px-4 py-1.5 rounded-full bg-stone-900 border border-bronze-400/30 text-bronze-400 text-xs font-semibold mb-8 backdrop-blur-md">
-            <span className="w-1.5 h-1.5 rounded-full bg-bronze-400 animate-pulse" />
-            <span className="tracking-widest uppercase text-[10px]">
-              Next-Generation Digital Hospitality
-            </span>
-            <span className="text-white/20">•</span>
-            <span className="text-stone-400 text-[10px] font-normal">Contactless Table Dining</span>
-          </div>
+        {/* Realistic High-End White Ceramic Plate (Positioned matching reference exactly) */}
+        <div className="absolute inset-0 pointer-events-none select-none z-0 overflow-hidden">
+          <img
+            src="/hero-plate.webp"
+            alt="Artisan Seared Scallop with Puree and Microgreens"
+            className="w-full h-full object-cover object-[80%_bottom] md:object-[82%_bottom] lg:object-right-bottom"
+          />
+          {/* Subtle edge fade gradients */}
+          <div className="absolute inset-0 bg-gradient-to-t from-[#121316] via-transparent to-transparent opacity-80 pointer-events-none" />
+          <div className="absolute inset-0 bg-gradient-to-r from-[#121316] via-[#121316]/60 md:via-transparent to-transparent pointer-events-none" />
+        </div>
 
-          {/* Main Title */}
-          <h1 className="font-serif text-4xl sm:text-6xl lg:text-7xl text-[#FAF8F5] leading-[1.08] tracking-tight font-normal">
-            Taste the <br />
-            <span className="italic font-normal">Extraordinary.</span> <br />
-            <span className="text-stone-300 font-serif text-3xl sm:text-5xl">
-              Elevate Every Table.
-            </span>
-          </h1>
+        {/* Dynamic Falling Microgreens Animation */}
+        <FallingMicrogreens />
 
-          {/* Subtitle */}
-          <p className="text-stone-400 text-sm sm:text-base mt-6 max-w-2xl mx-auto font-light leading-relaxed">
-            A luxury digital dining and kitchen management platform designed for prestigious restaurants,
-            boutique hotels, and modern lounges. Guests scan a tabletop QR code to explore curated dishes,
-            order instantaneously, and communicate directly with staff.
-          </p>
-
-          {/* Call to action buttons */}
-          <div className="mt-10 flex flex-wrap items-center justify-center gap-4">
-            <Link
-              href="/menu/sitan-dabaka-sekuwa?table=1"
-              className="explore-menu-pill px-8 py-3.5 rounded-full text-xs font-bold tracking-[0.16em] uppercase text-charcoal-900 flex items-center space-x-2.5 shadow-md group"
-            >
-              <Smartphone className="w-4 h-4 text-charcoal-900" />
-              <span>Explore Table Menu Demo</span>
-              <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-1 transition-transform" />
-            </Link>
-
-            <Link
-              href="/dashboard/login"
-              className="px-6 py-3.5 rounded-full dark-outline-btn text-stone-200 text-xs font-semibold tracking-wider uppercase flex items-center space-x-2 transition"
-            >
-              <ChefHat className="w-4 h-4 text-bronze-400" />
-              <span>Operations Dashboard</span>
-            </Link>
-          </div>
-
-          {/* Key Metric Highlights */}
-          <div className="mt-14 pt-8 border-t border-white/[0.08] grid grid-cols-2 sm:grid-cols-4 gap-4 max-w-3xl mx-auto text-left">
-            <div className="p-4 rounded-2xl bg-[#16171B] border border-white/[0.06]">
-              <span className="text-xl sm:text-2xl font-serif text-stone-100 block">Instant</span>
-              <span className="text-[11px] text-stone-400 font-medium">No App Download Needed</span>
+        <div className="max-w-7xl w-full mx-auto relative z-20">
+          <div className="max-w-xl lg:max-w-2xl text-left">
+            {/* Subtle Champagne Pill Badge */}
+            <div className="inline-flex items-center space-x-2 px-4 py-1.5 rounded-full bg-stone-900/90 border border-bronze-400/30 text-bronze-400 text-xs font-semibold mb-8 backdrop-blur-md">
+              <span className="w-1.5 h-1.5 rounded-full bg-bronze-400 animate-pulse" />
+              <span className="tracking-widest uppercase text-[10px]">
+                Next-Generation Digital Hospitality
+              </span>
+              <span className="text-white/20">•</span>
+              <span className="text-stone-400 text-[10px] font-normal">Contactless Table Dining</span>
             </div>
-            <div className="p-4 rounded-2xl bg-[#16171B] border border-white/[0.06]">
-              <span className="text-xl sm:text-2xl font-serif text-bronze-400 block">Realtime</span>
-              <span className="text-[11px] text-stone-400 font-medium">Instant Kitchen Alert</span>
-            </div>
-            <div className="p-4 rounded-2xl bg-[#16171B] border border-white/[0.06]">
-              <span className="text-xl sm:text-2xl font-serif text-stone-100 block">EN / NE</span>
-              <span className="text-[11px] text-stone-400 font-medium">Bilingual Nepali Engine</span>
-            </div>
-            <div className="p-4 rounded-2xl bg-[#16171B] border border-white/[0.06]">
-              <span className="text-xl sm:text-2xl font-serif text-stone-100 block">3D Food</span>
-              <span className="text-[11px] text-stone-400 font-medium">Interactive Preview</span>
+
+            {/* Main Title */}
+            <h1 className="font-serif text-4xl sm:text-6xl lg:text-7xl text-[#FAF8F5] leading-[1.08] tracking-tight font-normal">
+              Taste the <br />
+              <span className="italic font-normal">Extraordinary.</span> <br />
+              <span className="text-stone-300 font-serif text-3xl sm:text-5xl">
+                Elevate Every Table.
+              </span>
+            </h1>
+
+            {/* Subtitle */}
+            <p className="text-stone-400 text-sm sm:text-base mt-6 max-w-xl font-light leading-relaxed">
+              A luxury digital dining and kitchen management platform designed for prestigious restaurants,
+              boutique hotels, and modern lounges. Guests scan a tabletop QR code to explore curated dishes,
+              order instantaneously, and communicate directly with staff.
+            </p>
+
+            {/* Call to action buttons */}
+            <div className="mt-10 flex flex-wrap items-center justify-start gap-4">
+              <Link
+                href="/menu/sitan-dabaka-sekuwa?table=1"
+                className="explore-menu-pill px-8 py-3.5 rounded-full text-xs font-bold tracking-[0.16em] uppercase text-charcoal-900 flex items-center space-x-2.5 shadow-md group"
+              >
+                <Smartphone className="w-4 h-4 text-charcoal-900" />
+                <span>Explore Table Menu Demo</span>
+                <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-1 transition-transform" />
+              </Link>
+
+              <Link
+                href="/dashboard/login"
+                className="px-6 py-3.5 rounded-full dark-outline-btn text-stone-200 text-xs font-semibold tracking-wider uppercase flex items-center space-x-2 transition"
+              >
+                <ChefHat className="w-4 h-4 text-bronze-400" />
+                <span>Operations Dashboard</span>
+              </Link>
             </div>
           </div>
         </div>
       </section>
+
+      {/* Key Metric Highlights Bar */}
+      <div className="border-b border-white/[0.06] bg-[#121316] relative z-20 py-8 px-6 lg:px-14">
+        <div className="max-w-7xl mx-auto grid grid-cols-2 sm:grid-cols-4 gap-4 text-left">
+          <div className="p-4 rounded-2xl bg-[#16171B]/90 backdrop-blur-md border border-white/[0.06]">
+            <span className="text-xl sm:text-2xl font-serif text-stone-100 block">Instant</span>
+            <span className="text-[11px] text-stone-400 font-medium">No App Download Needed</span>
+          </div>
+          <div className="p-4 rounded-2xl bg-[#16171B]/90 backdrop-blur-md border border-white/[0.06]">
+            <span className="text-xl sm:text-2xl font-serif text-bronze-400 block">Realtime</span>
+            <span className="text-[11px] text-stone-400 font-medium">Instant Kitchen Alert</span>
+          </div>
+          <div className="p-4 rounded-2xl bg-[#16171B]/90 backdrop-blur-md border border-white/[0.06]">
+            <span className="text-xl sm:text-2xl font-serif text-stone-100 block">EN / NE</span>
+            <span className="text-[11px] text-stone-400 font-medium">Bilingual Nepali Engine</span>
+          </div>
+          <div className="p-4 rounded-2xl bg-[#16171B]/90 backdrop-blur-md border border-white/[0.06]">
+            <span className="text-xl sm:text-2xl font-serif text-stone-100 block">3D Food</span>
+            <span className="text-[11px] text-stone-400 font-medium">Interactive Preview</span>
+          </div>
+        </div>
+      </div>
 
       {/* Interactive Role Portals Section */}
       <section id="experience" className="max-w-6xl w-full mx-auto px-6 py-20">

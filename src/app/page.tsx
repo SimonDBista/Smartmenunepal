@@ -76,16 +76,16 @@ export default function HomePage() {
         {/* Ambient atmospheric backlight */}
         <div className="absolute top-0 left-1/4 w-[700px] h-[350px] bg-bronze-400/5 rounded-full blur-[120px] pointer-events-none" />
 
-        {/* Realistic High-End White Ceramic Plate (Positioned matching reference exactly) */}
-        <div className="absolute inset-0 pointer-events-none select-none z-0 overflow-hidden">
+        {/* Realistic High-End White Ceramic Plate (Shifted to match reference screenshot position) */}
+        <div className="absolute right-0 bottom-0 pointer-events-none select-none z-0 overflow-hidden w-full lg:w-[80%] xl:w-[75%] h-full max-h-[640px] flex items-end justify-end">
           <img
             src="/hero-plate.webp"
             alt="Artisan Seared Scallop with Puree and Microgreens"
-            className="w-full h-full object-cover object-[80%_bottom] md:object-[82%_bottom] lg:object-right-bottom"
+            className="w-auto h-[88%] max-h-[540px] object-contain object-right-bottom drop-shadow-[0_20px_50px_rgba(0,0,0,0.9)]"
           />
-          {/* Subtle edge fade gradients */}
-          <div className="absolute inset-0 bg-gradient-to-t from-[#121316] via-transparent to-transparent opacity-80 pointer-events-none" />
-          <div className="absolute inset-0 bg-gradient-to-r from-[#121316] via-[#121316]/60 md:via-transparent to-transparent pointer-events-none" />
+          {/* Subtle natural edge fade matching website #121316 */}
+          <div className="absolute inset-0 bg-gradient-to-t from-[#121316]/50 via-transparent to-transparent opacity-50 pointer-events-none" />
+          <div className="absolute inset-0 bg-gradient-to-r from-[#121316] via-transparent to-transparent opacity-25 pointer-events-none" />
         </div>
 
         {/* Dynamic Falling Microgreens Animation */}

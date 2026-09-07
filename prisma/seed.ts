@@ -228,16 +228,6 @@ async function main() {
     {
       hotelId: hotel.id,
       category: 'DRINK',
-      name: 'Fresh Sweet Juju Dhau Lassi (जुजु धौ लस्सी)',
-      price: 180,
-      imageUrl: 'https://images.unsplash.com/photo-1571006682875-01e405e320f7?auto=format&fit=crop&w=800&q=80',
-      description: 'Creamy Bhaktapur royal king curd blended with cardamom, pistachios and saffron.',
-      isAvailable: true,
-      is3dEnabled: false,
-    },
-    {
-      hotelId: hotel.id,
-      category: 'DRINK',
       name: 'Himalayan Masala Milk Tea (स्पेशल चिया)',
       price: 90,
       imageUrl: 'https://images.unsplash.com/photo-1576092768241-dec231879fc3?auto=format&fit=crop&w=800&q=80',
@@ -371,9 +361,9 @@ async function main() {
       customerPhone: '9847654321',
       items: JSON.stringify([
         { id: '3', name: 'Chicken C-Momo (चिकेन सि-मोमो)', price: 320, quantity: 2 },
-        { id: '4', name: 'Fresh Sweet Juju Dhau Lassi (जुजु धौ लस्सी)', price: 180, quantity: 2 },
+        { id: '4', name: 'Himalayan Masala Milk Tea (स्पेशल चिया)', price: 90, quantity: 2 },
       ]),
-      totalAmount: 1000,
+      totalAmount: 820,
       status: 'in_progress',
       notes: 'Less oil please',
     },

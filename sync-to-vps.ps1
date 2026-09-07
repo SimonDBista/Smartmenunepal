@@ -13,6 +13,8 @@ $filesToSync = @(
     "src/app/uploads",
     "server.js",
     "src/app/menu/[slug]/page.tsx",
+    "src/app/admin/login/page.tsx",
+    "src/app/dashboard/login/page.tsx",
     "docker-compose.yml",
     "Dockerfile",
     ".gitignore",

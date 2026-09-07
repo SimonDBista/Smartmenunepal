@@ -7,9 +7,9 @@ import { User, Lock, AlertCircle, Check, ArrowLeft, Utensils } from 'lucide-reac
 
 export default function HotelLoginPage() {
   const router = useRouter();
-  const [email, setEmail] = useState('sitan@sekuwacornor.com');
-  const [password, setPassword] = useState('password123');
-  const [rememberMe, setRememberMe] = useState(true);
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [rememberMe, setRememberMe] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -158,11 +158,7 @@ export default function HotelLoginPage() {
           </div>
         </form>
 
-        {/* Demo Credentials Box */}
-        <div className="mt-6 p-3 rounded-2xl bg-[#111216] border border-gold-400/25 text-center text-[11px] text-gold-400">
-          <p className="font-semibold">Pre-loaded Demo Credentials:</p>
-          <p className="text-stone-400 mt-0.5 font-mono text-[10px]">sitan@sekuwacornor.com | password123</p>
-        </div>
+
       </div>
     </div>
   );

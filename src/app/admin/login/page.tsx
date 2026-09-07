@@ -7,8 +7,8 @@ import { Shield, Lock, Mail, AlertCircle, ArrowRight, ArrowLeft } from 'lucide-r
 
 export default function AdminLoginPage() {
   const router = useRouter();
-  const [email, setEmail] = useState('admin@digitalizenepal.com');
-  const [password, setPassword] = useState('adminpassword123');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -93,7 +93,7 @@ export default function AdminLoginPage() {
                 required
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder="admin@digitalizenepal.com"
+                placeholder="admin@example.com"
                 className="w-full pl-10 pr-4 py-2.5 bg-dark-900 border border-white/[0.08] rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-gold-500 shadow-inner font-medium"
               />
             </div>
@@ -126,10 +126,7 @@ export default function AdminLoginPage() {
           </button>
         </form>
 
-        <div className="mt-6 p-3 rounded-2xl bg-dark-900 border border-white/[0.06] text-center text-[11px] text-slate-400">
-          <span className="font-semibold text-gold-400">Pre-seeded Root Admin:</span>
-          <p className="mt-0.5 font-mono">admin@digitalizenepal.com / adminpassword123</p>
-        </div>
+
       </div>
     </div>
   );

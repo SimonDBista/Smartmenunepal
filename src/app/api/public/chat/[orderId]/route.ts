@@ -44,11 +44,14 @@ export async function POST(
       return NextResponse.json({ error: 'Order not found' }, { status: 404 });
     }
 
+    const cleanTable = order.tableNumber ? String(order.tableNumber).trim() : null;
+
     const chatMessage = await prisma.chatMessage.create({
       data: {
         hotelId: order.hotelId,
         orderId: order.id,
-        sender: 'customer', // Public route is strictly for customer messages; staff uses authenticated hotel route
+        tableNumber: cleanTable, // Fixed: Associate customer message with tableNumber
+        sender: 'customer',
         message: trimmedMessage,
       },
     });
@@ -57,13 +60,19 @@ export async function POST(
     try {
       const io = (global as any).io;
       if (io) {
-        // Emit to specific order chat room
+        // 1. Emit to specific order chat room (for customer tracking screen)
         io.to(`order_${orderId}`).emit('chat_message', chatMessage);
-        // Also notify hotel room
+
+        // 2. Emit to table room (for staff viewing this table's chat)
+        if (cleanTable) {
+          io.to(`table_${order.hotelId}_${cleanTable}`).emit('chat_message', chatMessage);
+        }
+
+        // 3. Notify hotel room (for staff dashboard to update unread badge, audio alert, and preview)
         io.to(`hotel_${order.hotelId}`).emit('chat_notification', {
           orderId,
-          tableNumber: order.tableNumber,
-          customerName: order.customerName,
+          tableNumber: cleanTable,
+          customerName: order.customerName || `Guest at Table #${cleanTable}`,
           message: chatMessage,
         });
       }

@@ -16,10 +16,21 @@ export async function GET(request: NextRequest) {
     // Case 1: Specific table chat messages
     if (tableNumber) {
       const cleanTable = String(tableNumber).trim();
+
+      // Find all order IDs belonging to this table
+      const tableOrders = await prisma.order.findMany({
+        where: { hotelId: auth.hotelId, tableNumber: cleanTable },
+        select: { id: true },
+      });
+      const orderIds = tableOrders.map((o) => o.id);
+
       const messages = await prisma.chatMessage.findMany({
         where: {
           hotelId: auth.hotelId,
-          tableNumber: cleanTable,
+          OR: [
+            { tableNumber: cleanTable },
+            ...(orderIds.length > 0 ? [{ orderId: { in: orderIds } }] : []),
+          ],
         },
         orderBy: { createdAt: 'asc' },
       });
@@ -83,10 +94,56 @@ export async function GET(request: NextRequest) {
       orderBy: { createdAt: 'desc' },
     });
 
+    // Build map from orderId -> tableNumber
+    const allOrders = await prisma.order.findMany({
+      where: { hotelId: auth.hotelId },
+      select: { id: true, tableNumber: true },
+    });
+    const orderTableMap: Record<string, string> = {};
+    allOrders.forEach((o) => {
+      if (o.tableNumber) orderTableMap[o.id] = String(o.tableNumber).trim();
+    });
+
+    // Ensure all tables that have active orders or chat messages are included
+    const knownTableNumbers = new Set(tables.map((t) => t.tableNumber));
+    const extraTables: Array<{ id: string; tableNumber: string; name: string | null; capacity: number; isActive: boolean }> = [];
+
+    activeOrders.forEach((o) => {
+      const tNum = String(o.tableNumber).trim();
+      if (tNum && !knownTableNumbers.has(tNum)) {
+        knownTableNumbers.add(tNum);
+        extraTables.push({
+          id: `extra_${tNum}`,
+          tableNumber: tNum,
+          name: 'Dining Area',
+          capacity: 4,
+          isActive: true,
+        });
+      }
+    });
+
+    allMessages.forEach((m) => {
+      const tNum = m.tableNumber ? String(m.tableNumber).trim() : (m.orderId ? orderTableMap[m.orderId] : null);
+      if (tNum && !knownTableNumbers.has(tNum)) {
+        knownTableNumbers.add(tNum);
+        extraTables.push({
+          id: `extra_${tNum}`,
+          tableNumber: tNum,
+          name: 'Dining Area',
+          capacity: 4,
+          isActive: true,
+        });
+      }
+    });
+
+    const combinedTables = [...tables, ...extraTables];
+
     // Build table conversation items
-    const tableConversations = tables.map((t) => {
-      // Find latest message for this table
-      const tableMsgs = allMessages.filter((m) => m.tableNumber === t.tableNumber);
+    const tableConversations = combinedTables.map((t) => {
+      // Find messages for this table (by tableNumber OR by matching orderId)
+      const tableMsgs = allMessages.filter(
+        (m) => m.tableNumber === t.tableNumber || (m.orderId && orderTableMap[m.orderId] === t.tableNumber)
+      );
       const latestMessage = tableMsgs[0] || null;
       const unreadCount = tableMsgs.filter((m) => m.sender === 'customer').length;
 

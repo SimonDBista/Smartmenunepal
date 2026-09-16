@@ -154,25 +154,42 @@ function HotelLiveChatContent() {
       });
     }
 
+    const norm = (s?: string | null) => String(s || '').trim().toLowerCase().replace(/^table\s*/i, '');
+
     const handleNewMessage = (msg: ChatMessageItem) => {
-      if (selectedTable && msg.tableNumber === selectedTable.tableNumber) {
+      const msgTable = norm(msg.tableNumber);
+      const selTable = norm(selectedTable?.tableNumber);
+
+      // 1. If currently viewing this table, add message to chat view
+      if (selectedTable && (msg.tableNumber === selectedTable.tableNumber || (msgTable && msgTable === selTable))) {
         setMessages((prev) => {
           if (prev.some((m) => m.id === msg.id)) return prev;
           return [...prev, msg];
         });
       }
 
-      // Play audio alert if customer sent it
+      // 2. Play audio alert if customer sent it
       if (msg.sender === 'customer') {
         try {
           playChime();
         } catch {}
       }
 
-      // Update table summary list preview
-      setTables((prev) =>
-        prev.map((t) => {
-          if (t.tableNumber === msg.tableNumber) {
+      // 3. Update table summary list preview
+      setTables((prev) => {
+        const matchingTable = prev.find(
+          (t) => t.tableNumber === msg.tableNumber || (msgTable && norm(t.tableNumber) === msgTable)
+        );
+
+        // If message arrived for a table not currently in list, refresh table summaries
+        if (!matchingTable && msg.tableNumber) {
+          fetchTableSummaries();
+          return prev;
+        }
+
+        return prev.map((t) => {
+          if (t.tableNumber === msg.tableNumber || (msgTable && norm(t.tableNumber) === msgTable)) {
+            const isCurrentlySelected = selectedTable && (selectedTable.tableNumber === t.tableNumber || selTable === norm(t.tableNumber));
             return {
               ...t,
               latestMessage: {
@@ -183,20 +200,24 @@ function HotelLiveChatContent() {
               },
               messageCount: t.messageCount + 1,
               unreadCount:
-                msg.sender === 'customer' &&
-                (!selectedTable || selectedTable.tableNumber !== msg.tableNumber)
+                msg.sender === 'customer' && !isCurrentlySelected
                   ? t.unreadCount + 1
                   : t.unreadCount,
             };
           }
           return t;
-        })
-      );
+        });
+      });
     };
 
     const handleNotification = (data: any) => {
       if (data?.message) {
-        handleNewMessage(data.message);
+        const msg: ChatMessageItem = {
+          ...data.message,
+          tableNumber: data.message.tableNumber || data.tableNumber,
+          orderId: data.message.orderId || data.orderId,
+        };
+        handleNewMessage(msg);
       }
     };
 

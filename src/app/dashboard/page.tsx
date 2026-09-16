@@ -81,9 +81,6 @@ export default function HotelOrdersDashboard() {
         if (prev.some((o) => o.id === newOrder.id)) return prev;
         return [newOrder, ...prev];
       });
-      playChime('order');
-      setIncomingAlert(`New incoming order for Table #${newOrder.tableNumber}!`);
-      setTimeout(() => setIncomingAlert(null), 6000);
     };
 
     const handleOrderUpdated = (data: { orderId: string; status: string; order?: OrderData }) => {

@@ -16,8 +16,11 @@ import {
   X,
   ShieldAlert,
   Utensils,
+  Bell,
 } from 'lucide-react';
 import { HotelData } from '@/lib/types';
+import OrderNotificationToast from '@/components/OrderNotificationToast';
+import { playOrderBell, unlockAudio } from '@/lib/audio';
 
 export default function DashboardLayout({
   children,
@@ -178,6 +181,24 @@ export default function DashboardLayout({
 
         {/* Footer Actions */}
         <div className="pt-4 border-t border-white/[0.06] space-y-2.5">
+          {/* Order Alert Bell Status & Test Button */}
+          <button
+            onClick={() => {
+              unlockAudio();
+              playOrderBell();
+            }}
+            className="w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl bg-gold-400/10 hover:bg-gold-400/20 border border-gold-400/30 text-gold-300 text-xs font-bold transition group shadow-gold-glow"
+            title="Click to test order bell sound and activate audio alert"
+          >
+            <span className="flex items-center space-x-2">
+              <Bell className="w-3.5 h-3.5 text-gold-400 group-hover:animate-bounce" />
+              <span>Order Bell Alert</span>
+            </span>
+            <span className="px-2 py-0.5 rounded-md bg-gold-400/20 text-[10px] font-mono font-bold text-gold-300">
+              Test Bell
+            </span>
+          </button>
+
           {hotel && (
             <Link
               href={`/menu/${hotel.slug}`}
@@ -218,6 +239,16 @@ export default function DashboardLayout({
           </div>
 
           <div className="flex items-center space-x-2">
+            <button
+              onClick={() => {
+                unlockAudio();
+                playOrderBell();
+              }}
+              className="p-2 rounded-xl bg-gold-400/10 border border-gold-400/30 text-gold-400 text-xs flex items-center justify-center"
+              title="Test Order Bell Sound"
+            >
+              <Bell className="w-4 h-4" />
+            </button>
             {hotel && (
               <Link
                 href={`/menu/${hotel.slug}`}
@@ -267,6 +298,9 @@ export default function DashboardLayout({
             </button>
           </div>
         )}
+
+        {/* Floating Order Notification Toast & Bell Alert */}
+        <OrderNotificationToast hotelId={hotel?.id} />
 
         {/* Page Main Content */}
         <main className="p-4 sm:p-6 lg:p-10 flex-1 max-w-7xl w-full mx-auto">{children}</main>

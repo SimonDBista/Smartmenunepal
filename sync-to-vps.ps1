@@ -1,7 +1,7 @@
 param (
     [string]$VpsHost = "169.58.213.137",
     [string]$VpsUser = "root",
-    [string]$RemotePath = "/var/www/advanced-restro"
+    [string]$RemotePath = "/var/www/digitalize-nepal"
 )
 
 Write-Host "================================================" -ForegroundColor Cyan
@@ -21,7 +21,10 @@ $filesToSync = @(
     "src/app/dashboard/reports/page.tsx",
     "src/app/dashboard/page.tsx",
     "src/components/ReceiptModal.tsx",
+    "src/components/OrderNotificationToast.tsx",
+    "src/lib/audio.ts",
     "src/lib/types.ts",
+    "src/app/dashboard/layout.tsx",
     "src/app/dashboard/menu/page.tsx",
     "src/app/api/hotel/menu",
     "src/app/api/hotel/orders",

@@ -9,10 +9,12 @@ echo "=========================================="
 mkdir -p public/uploads
 chmod -R 775 public/uploads || true
 
-# Prepare PostgreSQL Prisma schema for production if present
-if [ -f "prisma/schema.postgresql.prisma" ]; then
-    echo ">> Preparing PostgreSQL Prisma schema for production..."
+# Prepare Prisma schema according to database provider in .env
+if [ -f "prisma/schema.postgresql.prisma" ] && grep -q "postgres" .env 2>/dev/null; then
+    echo ">> PostgreSQL database detected. Preparing PostgreSQL Prisma schema..."
     cp prisma/schema.postgresql.prisma prisma/schema.prisma
+else
+    echo ">> SQLite database detected. Preserving SQLite Prisma schema..."
 fi
 
 # 1. Docker Compose deployment (if docker-compose is installed)
@@ -33,8 +35,8 @@ if command -v pm2 &> /dev/null; then
     npx prisma db push
     npx prisma generate
     npm run build
-    pm2 restart advanced-restro || pm2 restart all || pm2 start ecosystem.config.js
-    echo ">> PM2 deployment successful!"
+    pm2 restart digitalize-nepal || pm2 restart advanced-restro || pm2 reload ecosystem.config.js
+    echo ">> PM2 deployment successful on port 3001!"
     exit 0
 fi
 

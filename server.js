@@ -1,3 +1,6 @@
+// Force Nepal Standard Time (NPT: UTC+5:45) exclusively for this project
+process.env.TZ = 'Asia/Kathmandu';
+
 const { createServer } = require('http');
 const { parse } = require('url');
 const next = require('next');

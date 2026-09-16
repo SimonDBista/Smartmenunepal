@@ -18,7 +18,9 @@ export async function GET(request: NextRequest) {
     let chartDays = 7;
 
     if (range === 'today') {
-      startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
+      // Exact start of today in Nepal Time (Asia/Kathmandu UTC+5:45)
+      const nepalTodayStr = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kathmandu' }).format(now);
+      startDate = new Date(`${nepalTodayStr}T00:00:00+05:45`);
       chartDays = 1;
     } else if (range === '7days') {
       startDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
@@ -136,14 +138,14 @@ export async function GET(request: NextRequest) {
     for (let i = chartDays - 1; i >= 0; i--) {
       const d = new Date();
       d.setDate(d.getDate() - i);
-      const dateStr = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+      const dateStr = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'Asia/Kathmandu' });
       daysMap[dateStr] = { date: dateStr, sales: 0, count: 0 };
     }
 
     // Populate active done orders into chart
     activeDoneOrders.forEach((o) => {
       const d = new Date(o.createdAt);
-      const dateStr = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+      const dateStr = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'Asia/Kathmandu' });
       if (daysMap[dateStr]) {
         daysMap[dateStr].count += 1;
         daysMap[dateStr].sales += o.totalAmount;
@@ -153,7 +155,7 @@ export async function GET(request: NextRequest) {
     // Populate historical sales into chart
     historicalSales.forEach((s) => {
       const d = new Date(s.orderDate);
-      const dateStr = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+      const dateStr = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'Asia/Kathmandu' });
       if (daysMap[dateStr]) {
         daysMap[dateStr].count += 1;
         daysMap[dateStr].sales += s.totalAmount;

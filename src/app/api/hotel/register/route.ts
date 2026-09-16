@@ -3,11 +3,7 @@ import prisma from '@/lib/prisma';
 import { getHotelAuth } from '@/lib/auth';
 
 function getTodayString(): string {
-  const d = new Date();
-  const year = d.getFullYear();
-  const month = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kathmandu' }).format(new Date());
 }
 
 export async function GET(request: NextRequest) {
@@ -20,8 +16,8 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const dateStr = searchParams.get('date') || getTodayString();
 
-    const startOfDay = new Date(`${dateStr}T00:00:00.000Z`);
-    const endOfDay = new Date(`${dateStr}T23:59:59.999Z`);
+    const startOfDay = new Date(`${dateStr}T00:00:00+05:45`);
+    const endOfDay = new Date(`${dateStr}T23:59:59.999+05:45`);
 
     // 1. Get or find register record
     let register = await prisma.dailyRegister.findUnique({
@@ -141,8 +137,8 @@ export async function POST(request: NextRequest) {
     });
 
     // Compute live calculations
-    const startOfDay = new Date(`${targetDate}T00:00:00.000Z`);
-    const endOfDay = new Date(`${targetDate}T23:59:59.999Z`);
+    const startOfDay = new Date(`${targetDate}T00:00:00+05:45`);
+    const endOfDay = new Date(`${targetDate}T23:59:59.999+05:45`);
 
     const doneOrders = await prisma.order.findMany({
       where: {

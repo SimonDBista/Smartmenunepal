@@ -21,6 +21,7 @@ export function formatNPR(amount: number, nepali: boolean = false): string {
 export function formatDate(dateInput: string | Date): string {
   const d = new Date(dateInput);
   return d.toLocaleDateString('en-US', {
+    timeZone: 'Asia/Kathmandu',
     month: 'short',
     day: 'numeric',
     year: 'numeric',
@@ -32,6 +33,7 @@ export function formatDate(dateInput: string | Date): string {
 export function formatTime(dateInput: string | Date): string {
   const d = new Date(dateInput);
   return d.toLocaleTimeString('en-US', {
+    timeZone: 'Asia/Kathmandu',
     hour: '2-digit',
     minute: '2-digit',
   });

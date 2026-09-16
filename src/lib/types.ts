@@ -20,6 +20,8 @@ export interface MenuItemData {
   modelUrl?: string | null;
   createdAt: string | Date;
   updatedAt: string | Date;
+  totalOrdered?: number;
+  totalRevenue?: number;
 }
 
 export interface HotelData {
@@ -48,6 +50,7 @@ export interface OrderData {
   customerPhone?: string | null;
   items: string; // JSON string or parsed
   totalAmount: number;
+  discountAmount?: number;
   status: 'received' | 'in_progress' | 'done' | 'cancelled';
   notes?: string | null;
   createdAt: string | Date;

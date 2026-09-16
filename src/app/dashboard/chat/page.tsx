@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useRef, Suspense } from 'react';
+import React, { useState, useEffect, useRef, useMemo, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import {
   MessageSquare,
@@ -11,11 +11,47 @@ import {
   RefreshCw,
   Search,
   Sparkles,
+  Users,
+  Utensils,
+  AlertCircle,
+  ExternalLink,
+  Trash2,
 } from 'lucide-react';
-import { OrderData, ChatMessageData } from '@/lib/types';
-import { formatDate, formatTime } from '@/lib/utils';
+import { formatTime, formatDate } from '@/lib/utils';
 import { useSocket } from '@/lib/socket';
 import { playChime } from '@/lib/audio';
+
+interface TableChatSummary {
+  id: string;
+  tableNumber: string;
+  name: string | null;
+  capacity: number;
+  isActive: boolean;
+  activeOrder: {
+    id: string;
+    status: string;
+    customerName: string | null;
+    totalAmount: number;
+    createdAt: string;
+  } | null;
+  latestMessage: {
+    id: string;
+    sender: 'customer' | 'staff';
+    message: string;
+    createdAt: string;
+  } | null;
+  messageCount: number;
+  unreadCount: number;
+}
+
+interface ChatMessageItem {
+  id: string;
+  tableNumber?: string | null;
+  orderId?: string | null;
+  sender: 'customer' | 'staff';
+  message: string;
+  createdAt: string;
+}
 
 export default function HotelLiveChatCenter() {
   return (
@@ -23,7 +59,7 @@ export default function HotelLiveChatCenter() {
       fallback={
         <div className="p-16 text-center text-xs text-slate-400">
           <RefreshCw className="w-8 h-8 text-gold-500 animate-spin mx-auto mb-2 shadow-gold-glow" />
-          Loading chat inbox...
+          Loading table chat inbox...
         </div>
       }
     >
@@ -34,21 +70,24 @@ export default function HotelLiveChatCenter() {
 
 function HotelLiveChatContent() {
   const searchParams = useSearchParams();
-  const initialOrderId = searchParams?.get('orderId') || '';
+  const initialTableParam = searchParams?.get('tableNumber') || '';
 
-  const [conversations, setConversations] = useState<OrderData[]>([]);
-  const [selectedOrder, setSelectedOrder] = useState<OrderData | null>(null);
-  const [messages, setMessages] = useState<ChatMessageData[]>([]);
+  const [tables, setTables] = useState<TableChatSummary[]>([]);
+  const [selectedTable, setSelectedTable] = useState<TableChatSummary | null>(null);
+  const [messages, setMessages] = useState<ChatMessageItem[]>([]);
   const [replyText, setReplyText] = useState('');
   const [hotelId, setHotelId] = useState<string>('');
   const [loading, setLoading] = useState(true);
+  const [messagesLoading, setMessagesLoading] = useState(false);
   const [isSending, setIsSending] = useState(false);
+  const isSendingRef = useRef(false);
   const [searchQuery, setSearchQuery] = useState('');
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const { socket } = useSocket();
 
-  const fetchConversations = async () => {
+  // 1. Fetch tables with chat summaries (sorted ascending from API)
+  const fetchTableSummaries = async () => {
     try {
       setLoading(true);
       const meRes = await fetch('/api/auth/hotel/me');
@@ -60,221 +99,344 @@ function HotelLiveChatContent() {
       const res = await fetch('/api/hotel/chat');
       if (res.ok) {
         const data = await res.json();
-        const convs: OrderData[] = data.conversations || [];
-        setConversations(convs);
+        const tableList: TableChatSummary[] = data.tables || [];
+        setTables(tableList);
 
-        if (initialOrderId) {
-          const match = convs.find((c) => c.id === initialOrderId);
-          if (match) setSelectedOrder(match);
-        } else if (convs.length > 0 && !selectedOrder) {
-          setSelectedOrder(convs[0]);
+        if (initialTableParam) {
+          const match = tableList.find((t) => t.tableNumber === initialTableParam);
+          if (match) setSelectedTable(match);
+        } else if (tableList.length > 0 && !selectedTable) {
+          setSelectedTable(tableList[0]);
         }
       }
     } catch (err) {
-      console.error(err);
+      console.error('Failed to load table chats:', err);
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchConversations();
+    fetchTableSummaries();
   }, []);
 
-  useEffect(() => {
-    if (!selectedOrder) return;
-
-    async function fetchOrderMessages() {
-      try {
-        const res = await fetch(`/api/hotel/chat?orderId=${selectedOrder?.id}`);
-        if (res.ok) {
-          const data = await res.json();
-          setMessages(data.messages || []);
-        }
-      } catch (err) {
-        console.error(err);
+  // 2. Fetch messages for the currently selected table
+  const fetchTableMessages = async (tableNumber: string) => {
+    try {
+      setMessagesLoading(true);
+      const res = await fetch(`/api/hotel/chat?tableNumber=${encodeURIComponent(tableNumber)}`);
+      if (res.ok) {
+        const data = await res.json();
+        setMessages(data.messages || []);
       }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setMessagesLoading(false);
     }
+  };
 
-    fetchOrderMessages();
-  }, [selectedOrder]);
+  useEffect(() => {
+    if (!selectedTable) return;
+    fetchTableMessages(selectedTable.tableNumber);
+  }, [selectedTable?.tableNumber]);
 
+  // 3. Socket subscriptions
   useEffect(() => {
     if (!socket || !hotelId) return;
 
     socket.emit('join_hotel', hotelId);
 
-    if (selectedOrder) {
-      socket.emit('join_order', selectedOrder.id);
+    if (selectedTable) {
+      socket.emit('join_table', {
+        hotelId,
+        tableNumber: selectedTable.tableNumber,
+      });
     }
 
-    const handleChatNotification = (data: {
-      orderId: string;
-      tableNumber?: string;
-      customerName?: string;
-      message: ChatMessageData;
-    }) => {
-      if (selectedOrder && data.orderId === selectedOrder.id) {
-        setMessages((prev) => {
-          if (prev.some((m) => m.id === data.message.id)) return prev;
-          return [...prev, data.message];
-        });
-      }
-
-      if (data.message.sender === 'customer') {
-        playChime('message');
-      }
-
-      fetchConversations();
-    };
-
-    socket.on('chat_notification', handleChatNotification);
-    socket.on('chat_message', (msg: ChatMessageData) => {
-      if (selectedOrder && msg.orderId === selectedOrder.id) {
+    const handleNewMessage = (msg: ChatMessageItem) => {
+      if (selectedTable && msg.tableNumber === selectedTable.tableNumber) {
         setMessages((prev) => {
           if (prev.some((m) => m.id === msg.id)) return prev;
           return [...prev, msg];
         });
       }
-    });
+
+      // Play audio alert if customer sent it
+      if (msg.sender === 'customer') {
+        try {
+          playChime();
+        } catch {}
+      }
+
+      // Update table summary list preview
+      setTables((prev) =>
+        prev.map((t) => {
+          if (t.tableNumber === msg.tableNumber) {
+            return {
+              ...t,
+              latestMessage: {
+                id: msg.id,
+                sender: msg.sender,
+                message: msg.message,
+                createdAt: msg.createdAt,
+              },
+              messageCount: t.messageCount + 1,
+              unreadCount:
+                msg.sender === 'customer' &&
+                (!selectedTable || selectedTable.tableNumber !== msg.tableNumber)
+                  ? t.unreadCount + 1
+                  : t.unreadCount,
+            };
+          }
+          return t;
+        })
+      );
+    };
+
+    const handleNotification = (data: any) => {
+      if (data?.message) {
+        handleNewMessage(data.message);
+      }
+    };
+
+    socket.on('chat_message', handleNewMessage);
+    socket.on('chat_notification', handleNotification);
 
     return () => {
-      socket.off('chat_notification', handleChatNotification);
+      socket.off('chat_message', handleNewMessage);
+      socket.off('chat_notification', handleNotification);
     };
-  }, [socket, hotelId, selectedOrder]);
+  }, [socket, hotelId, selectedTable?.tableNumber]);
 
+  // Scroll to bottom on new message
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  const handleSendReply = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!replyText.trim() || !selectedOrder || isSending) return;
-
-    const messageText = replyText.trim();
-    setReplyText('');
-    setIsSending(true);
+  // Send message from staff
+  const handleSendMessage = async (customText?: string) => {
+    const textToSend = (customText || replyText).trim();
+    if (!textToSend || !selectedTable || isSendingRef.current) return;
 
     try {
+      isSendingRef.current = true;
+      setIsSending(true);
       const res = await fetch('/api/hotel/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          orderId: selectedOrder.id,
-          message: messageText,
+          tableNumber: selectedTable.tableNumber,
+          message: textToSend,
+          orderId: selectedTable.activeOrder?.id || undefined,
         }),
       });
 
-      const data = await res.json();
-      if (data.success && data.message) {
+      if (res.ok) {
+        const data = await res.json();
+        const newMsg = data.message;
         setMessages((prev) => {
-          if (prev.some((m) => m.id === data.message.id)) return prev;
-          return [...prev, data.message];
+          if (prev.some((m) => m.id === newMsg.id)) return prev;
+          return [...prev, newMsg];
         });
+        setReplyText('');
+
+        // Update table summary
+        setTables((prev) =>
+          prev.map((t) =>
+            t.tableNumber === selectedTable.tableNumber
+              ? {
+                  ...t,
+                  latestMessage: {
+                    id: newMsg.id,
+                    sender: 'staff',
+                    message: newMsg.message,
+                    createdAt: newMsg.createdAt,
+                  },
+                  messageCount: t.messageCount + 1,
+                }
+              : t
+          )
+        );
       }
     } catch (err) {
-      console.error('Failed to send reply:', err);
+      console.error(err);
     } finally {
+      isSendingRef.current = false;
       setIsSending(false);
     }
   };
 
-  const filteredConversations = conversations.filter((c) => {
-    if (!searchQuery) return true;
-    return (
-      c.tableNumber.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (c.customerName && c.customerName.toLowerCase().includes(searchQuery.toLowerCase()))
+  // Clear chat history for selected table
+  const handleClearChat = async () => {
+    if (!selectedTable) return;
+    if (!confirm(`Clear all chat messages for Table #${selectedTable.tableNumber}?`)) return;
+
+    try {
+      const res = await fetch(`/api/hotel/chat?tableNumber=${encodeURIComponent(selectedTable.tableNumber)}`, {
+        method: 'DELETE',
+      });
+      if (res.ok) {
+        setMessages([]);
+        setTables((prev) =>
+          prev.map((t) =>
+            t.tableNumber === selectedTable.tableNumber
+              ? { ...t, latestMessage: null, messageCount: 0, unreadCount: 0 }
+              : t
+          )
+        );
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+
+  // Filter tables by search query
+  const filteredTables = useMemo(() => {
+    if (!searchQuery.trim()) return tables;
+    const q = searchQuery.toLowerCase().trim();
+    return tables.filter(
+      (t) =>
+        t.tableNumber.toLowerCase().includes(q) ||
+        (t.name && t.name.toLowerCase().includes(q)) ||
+        (t.activeOrder?.customerName && t.activeOrder.customerName.toLowerCase().includes(q))
     );
-  });
+  }, [tables, searchQuery]);
 
   return (
-    <div className="space-y-8">
-      {/* Header */}
-      <div className="flex items-center justify-between">
+    <div className="space-y-6 max-w-7xl mx-auto h-[calc(100vh-120px)] flex flex-col">
+      {/* Top Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 shrink-0">
         <div>
-          <h1 className="text-3xl font-serif font-extrabold text-white">
-            Table Live Chat Desk
-          </h1>
-          <p className="text-xs text-slate-400 mt-1">
-            Realtime two-way messaging with dining guests
+          <div className="flex items-center space-x-2">
+            <h1 className="text-3xl font-serif font-bold text-white">Live Table Chat</h1>
+            <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-gold-400/10 text-gold-400 border border-gold-400/20">
+              Ascending Table Order
+            </span>
+          </div>
+          <p className="text-xs text-stone-400 mt-1">
+            Initiate conversations with any dining table before or after they order. Tables sync directly with your QR generator.
           </p>
         </div>
 
         <button
-          onClick={fetchConversations}
-          className="px-4 py-2 rounded-xl dark-btn text-slate-300 text-xs font-semibold flex items-center space-x-2"
+          onClick={fetchTableSummaries}
+          disabled={loading}
+          className="self-start sm:self-auto px-4 py-2 rounded-xl dark-btn text-xs font-semibold text-stone-300 flex items-center space-x-2 hover:text-white"
         >
-          <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
-          <span>Sync</span>
+          <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin text-gold-400' : ''}`} />
+          <span>Refresh Tables</span>
         </button>
       </div>
 
-      {/* Main Split Chat Layout */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-0 h-[660px] bg-dark-850/90 backdrop-blur-xl border border-white/[0.08] rounded-3xl overflow-hidden shadow-premium-card">
-        {/* Left Side: Conversations List */}
-        <div className="md:col-span-1 border-r border-surface-border flex flex-col bg-dark-900/90">
-          <div className="p-4 border-b border-surface-border">
+      {/* Main Chat Layout: Left Tables Sidebar (Ascending) + Right Chat Window */}
+      <div className="flex-1 bg-[#0e0f12] border border-white/[0.08] rounded-3xl overflow-hidden shadow-2xl flex flex-col md:flex-row min-h-0">
+        {/* ============================================================ */}
+        {/* LEFT SIDEBAR: TABLES IN ASCENDING ORDER                      */}
+        {/* ============================================================ */}
+        <div className="w-full md:w-80 lg:w-96 border-b md:border-b-0 md:border-r border-white/[0.08] flex flex-col shrink-0 bg-[#121316]">
+          {/* Search bar & count */}
+          <div className="p-4 border-b border-white/[0.08] space-y-2">
             <div className="relative">
-              <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-500" />
+              <Search className="w-4 h-4 text-stone-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
               <input
                 type="text"
-                placeholder="Search table or guest..."
+                placeholder="Search table number or section..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-9 pr-3 py-2 bg-dark-850 border border-white/[0.06] rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-gold-500 shadow-inner"
+                className="w-full pl-10 pr-4 py-2 bg-stone-900 border border-white/10 rounded-xl text-xs text-white placeholder-stone-500 focus:outline-none focus:border-gold-400"
               />
+            </div>
+            <div className="flex items-center justify-between text-[11px] text-stone-400 px-1">
+              <span>{filteredTables.length} Tables Configured</span>
+              <span className="text-gold-400 font-semibold text-[10px] uppercase tracking-wider">
+                Sorted 1 → N
+              </span>
             </div>
           </div>
 
+          {/* Tables list (Natural Ascending Order) */}
           <div className="flex-1 overflow-y-auto divide-y divide-white/[0.04]">
-            {filteredConversations.length === 0 ? (
-              <div className="p-10 text-center text-xs text-slate-500">
-                No active conversations yet
+            {loading && tables.length === 0 ? (
+              <div className="p-8 text-center text-xs text-stone-400">
+                <RefreshCw className="w-6 h-6 text-gold-400 animate-spin mx-auto mb-2" />
+                Loading tables...
+              </div>
+            ) : filteredTables.length === 0 ? (
+              <div className="p-8 text-center text-xs text-stone-500">
+                No tables found matching "{searchQuery}"
               </div>
             ) : (
-              filteredConversations.map((conv) => {
-                const isSelected = selectedOrder?.id === conv.id;
-                const lastMsg = conv.chatMessages?.[0];
+              filteredTables.map((t) => {
+                const isSelected = selectedTable?.tableNumber === t.tableNumber;
                 return (
                   <button
-                    key={conv.id}
-                    onClick={() => setSelectedOrder(conv)}
-                    className={`w-full p-4 text-left transition flex items-start space-x-3.5 ${
+                    key={t.id}
+                    onClick={() => setSelectedTable(t)}
+                    className={`w-full text-left p-4 transition-all flex items-start justify-between gap-3 relative ${
                       isSelected
-                        ? 'bg-dark-800 border-l-4 border-gold-500 shadow-inner'
-                        : 'hover:bg-dark-850/60'
+                        ? 'bg-gradient-to-r from-gold-500/15 via-gold-500/5 to-transparent border-l-4 border-gold-400'
+                        : 'hover:bg-stone-900/60'
                     }`}
                   >
-                    <div className="w-10 h-10 rounded-2xl bg-dark-950 border border-gold-500/30 flex items-center justify-center font-serif font-black text-xs text-gold-400 flex-shrink-0 shadow-inner">
-                      T#{conv.tableNumber}
-                    </div>
-
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center justify-between">
-                        <span className="font-serif font-bold text-xs text-white truncate">
-                          {conv.customerName || `Table ${conv.tableNumber}`}
+                    <div className="min-w-0 flex-1">
+                      {/* Table Number & Section */}
+                      <div className="flex items-center space-x-2">
+                        <span className="font-serif font-black text-sm text-white">
+                          Table #{t.tableNumber}
                         </span>
-                        {lastMsg && (
-                          <span className="text-[10px] text-slate-500 font-mono">
-                            {formatTime(lastMsg.createdAt)}
+                        {t.name && (
+                          <span className="text-[10px] font-semibold text-gold-400/90 px-2 py-0.2 rounded-full bg-gold-400/10 border border-gold-400/20 truncate max-w-[120px]">
+                            {t.name}
                           </span>
                         )}
                       </div>
 
-                      <p className="text-xs text-slate-400 truncate mt-0.5 font-normal">
-                        {lastMsg
-                          ? `${lastMsg.sender === 'staff' ? 'You: ' : ''}${lastMsg.message}`
-                          : 'Order placed'}
-                      </p>
+                      {/* Active Order status badge if diners are seated */}
+                      {t.activeOrder ? (
+                        <div className="mt-1 flex items-center space-x-1.5 text-[10px] font-semibold text-emerald-400">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                          <span>
+                            Active Order • {t.activeOrder.customerName || 'Diner'} (NPR {t.activeOrder.totalAmount})
+                          </span>
+                        </div>
+                      ) : (
+                        <div className="mt-1 flex items-center space-x-1 text-[10px] text-stone-500">
+                          <Users className="w-3 h-3 text-stone-600" />
+                          <span>Capacity: {t.capacity}</span>
+                        </div>
+                      )}
 
-                      <div className="flex items-center space-x-2 mt-1.5">
-                        <span className="text-[9px] uppercase px-2 py-0.5 rounded-full bg-dark-950 text-slate-400 font-bold border border-white/[0.06]">
-                          {conv.status}
+                      {/* Latest message snippet */}
+                      <p className="text-xs text-stone-400 truncate mt-1.5 font-normal">
+                        {t.latestMessage ? (
+                          <span>
+                            <strong className={t.latestMessage.sender === 'staff' ? 'text-gold-400' : 'text-stone-300'}>
+                              {t.latestMessage.sender === 'staff' ? 'You: ' : 'Guest: '}
+                            </strong>
+                            {t.latestMessage.message}
+                          </span>
+                        ) : (
+                          <span className="italic text-stone-500 text-[11px]">
+                            No chat yet • Tap to start
+                          </span>
+                        )}
+                      </p>
+                    </div>
+
+                    {/* Timestamp & unread badge */}
+                    <div className="flex flex-col items-end space-y-1.5 shrink-0">
+                      {t.latestMessage && (
+                        <span className="text-[10px] text-stone-500 font-mono">
+                          {formatTime(t.latestMessage.createdAt)}
                         </span>
-                        <span className="text-[10px] text-gold-400 font-bold font-mono">
-                          Order #{conv.id.slice(-4).toUpperCase()}
+                      )}
+                      {t.unreadCount > 0 && (
+                        <span className="w-5 h-5 rounded-full bg-gold-400 text-black font-black text-[10px] flex items-center justify-center shadow-gold-glow">
+                          {t.unreadCount}
                         </span>
-                      </div>
+                      )}
                     </div>
                   </button>
                 );
@@ -283,58 +445,116 @@ function HotelLiveChatContent() {
           </div>
         </div>
 
-        {/* Right Side: Active Chat Thread */}
-        <div className="md:col-span-2 flex flex-col justify-between bg-dark-950/60">
-          {selectedOrder ? (
+        {/* ============================================================ */}
+        {/* RIGHT CHAT WINDOW: SELECTED TABLE LIVE CHAT                  */}
+        {/* ============================================================ */}
+        <div className="flex-1 flex flex-col bg-[#0b0c0e] min-w-0">
+          {selectedTable ? (
             <>
-              {/* Thread Top Bar */}
-              <div className="p-4 bg-dark-900/90 border-b border-surface-border flex items-center justify-between">
-                <div className="flex items-center space-x-3.5">
-                  <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-brandPink-500 to-gold-500 flex items-center justify-center text-white font-serif font-black text-sm shadow-pink-glow">
-                    #{selectedOrder.tableNumber}
+              {/* Chat Window Top Bar */}
+              <div className="p-4 px-6 border-b border-white/[0.08] bg-[#111216] flex items-center justify-between gap-4">
+                <div className="flex items-center space-x-3 min-w-0">
+                  <div className="w-10 h-10 rounded-2xl bg-gold-400/15 border border-gold-400/30 flex items-center justify-center text-gold-400 font-serif font-black text-sm shrink-0">
+                    #{selectedTable.tableNumber}
                   </div>
-                  <div>
-                    <h2 className="font-serif font-bold text-sm text-white">
-                      Table #{selectedOrder.tableNumber} — {selectedOrder.customerName || 'Dining Guest'}
-                    </h2>
-                    <p className="text-[11px] text-gold-400 font-medium font-mono">
-                      Order ID: #{selectedOrder.id} • Status: {selectedOrder.status}
-                    </p>
+                  <div className="min-w-0">
+                    <div className="flex items-center space-x-2">
+                      <h2 className="text-base font-serif font-bold text-white truncate">
+                        Table #{selectedTable.tableNumber}
+                      </h2>
+                      {selectedTable.name && (
+                        <span className="text-[11px] text-stone-400 font-normal">
+                          • {selectedTable.name}
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-center space-x-2 text-[11px] text-stone-400">
+                      <span className="flex items-center space-x-1">
+                        <Users className="w-3 h-3 text-stone-500" />
+                        <span>Seats {selectedTable.capacity}</span>
+                      </span>
+                      {selectedTable.activeOrder && (
+                        <>
+                          <span>•</span>
+                          <span className="text-emerald-400 font-semibold flex items-center space-x-1">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                            <span>Active Order #{selectedTable.activeOrder.id.slice(-5).toUpperCase()}</span>
+                          </span>
+                        </>
+                      )}
+                    </div>
                   </div>
+                </div>
+
+                <div className="flex items-center space-x-2 shrink-0">
+                  {selectedTable.activeOrder && (
+                    <a
+                      href={`/order/${selectedTable.activeOrder.id}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="px-3 py-1.5 rounded-xl dark-btn text-xs font-semibold text-gold-400 flex items-center space-x-1.5 hover:border-gold-400/40"
+                    >
+                      <span>View Order</span>
+                      <ExternalLink className="w-3 h-3" />
+                    </a>
+                  )}
+
+                  {messages.length > 0 && (
+                    <button
+                      onClick={handleClearChat}
+                      title="Clear chat history"
+                      className="p-2 text-stone-500 hover:text-red-400 rounded-xl hover:bg-stone-900 transition"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  )}
                 </div>
               </div>
 
-              {/* Message History */}
-              <div className="flex-1 p-5 overflow-y-auto space-y-3">
-                {messages.length === 0 ? (
-                  <div className="h-full flex flex-col items-center justify-center text-slate-500 text-xs text-center">
-                    <MessageSquare className="w-8 h-8 mb-2 opacity-40 text-gold-400" />
-                    <p className="font-semibold text-slate-400">No messages in this thread yet</p>
-                    <p className="text-[11px] text-slate-600 mt-1">
-                      Type below to send a message to Table #{selectedOrder.tableNumber}
+              {/* Messages Scroll Area */}
+              <div className="flex-1 p-6 overflow-y-auto space-y-4">
+                {messagesLoading ? (
+                  <div className="p-8 text-center text-xs text-stone-500">
+                    <RefreshCw className="w-6 h-6 text-gold-400 animate-spin mx-auto mb-2" />
+                    Loading conversation...
+                  </div>
+                ) : messages.length === 0 ? (
+                  <div className="py-20 text-center max-w-sm mx-auto">
+                    <div className="w-12 h-12 rounded-2xl bg-gold-400/10 border border-gold-400/20 text-gold-400 flex items-center justify-center mx-auto mb-3">
+                      <Sparkles className="w-6 h-6" />
+                    </div>
+                    <h3 className="text-base font-serif font-bold text-white mb-1">
+                      No Messages with Table #{selectedTable.tableNumber}
+                    </h3>
+                    <p className="text-xs text-stone-400 leading-relaxed">
+                      Type a message below to start the conversation with this table.
                     </p>
                   </div>
                 ) : (
-                  messages.map((msg) => {
-                    const isStaff = msg.sender === 'staff';
+                  messages.map((m) => {
+                    const isStaff = m.sender === 'staff';
                     return (
                       <div
-                        key={msg.id}
+                        key={m.id}
                         className={`flex flex-col ${isStaff ? 'items-end' : 'items-start'}`}
                       >
-                        <span className="text-[10px] text-slate-500 mb-0.5 px-1 font-mono">
-                          {isStaff ? 'Staff / Reception' : `Customer (Table #${selectedOrder.tableNumber})`}{' '}
-                          • {formatTime(msg.createdAt)}
-                        </span>
                         <div
-                          className={`max-w-[75%] px-4 py-2.5 rounded-2xl text-xs leading-relaxed ${
+                          className={`max-w-md rounded-2xl p-3.5 shadow-md ${
                             isStaff
-                              ? 'bg-gold-500 text-black font-semibold rounded-br-none shadow-gold-glow'
-                              : 'bg-dark-850 text-slate-200 border border-white/[0.08] rounded-bl-none'
+                              ? 'bg-gradient-to-r from-gold-500 to-gold-400 text-black rounded-tr-sm font-medium'
+                              : 'bg-stone-900 border border-white/10 text-stone-100 rounded-tl-sm'
                           }`}
                         >
-                          {msg.message}
+                          <div className="flex items-center space-x-1.5 mb-1 opacity-80 text-[10px] font-bold uppercase tracking-wider">
+                            <span>{isStaff ? 'Staff • Reception' : `Table #${selectedTable.tableNumber}`}</span>
+                          </div>
+                          <p className="text-xs sm:text-sm whitespace-pre-wrap leading-relaxed">
+                            {m.message}
+                          </p>
                         </div>
+                        <span className="text-[10px] text-stone-500 font-mono mt-1 px-1">
+                          {formatTime(m.createdAt)}
+                        </span>
                       </div>
                     );
                   })
@@ -342,35 +562,41 @@ function HotelLiveChatContent() {
                 <div ref={messagesEndRef} />
               </div>
 
-              {/* Reply Input Bar */}
-              <form
-                onSubmit={handleSendReply}
-                className="p-4 bg-dark-900/90 border-t border-surface-border flex items-center space-x-2"
-              >
-                <input
-                  type="text"
-                  placeholder={`Send reply to Table #${selectedOrder.tableNumber}...`}
-                  value={replyText}
-                  onChange={(e) => setReplyText(e.target.value)}
-                  className="flex-1 px-4 py-2.5 bg-dark-850 border border-surface-border rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-gold-500 shadow-inner"
-                />
-                <button
-                  type="submit"
-                  disabled={!replyText.trim() || isSending}
-                  className="px-6 py-2.5 rounded-xl gold-btn text-xs font-bold flex items-center space-x-1.5 disabled:opacity-40 shadow-gold-glow"
+              {/* Message Input Box */}
+              <div className="p-4 px-6 border-t border-white/[0.08] bg-[#111216]">
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    handleSendMessage();
+                  }}
+                  className="flex items-center space-x-3"
                 >
-                  <Send className="w-4 h-4" />
-                  <span>Reply</span>
-                </button>
-              </form>
+                  <input
+                    type="text"
+                    placeholder={`Message Table #${selectedTable.tableNumber}...`}
+                    value={replyText}
+                    onChange={(e) => setReplyText(e.target.value)}
+                    disabled={isSending}
+                    className="flex-1 px-4 py-3 bg-stone-900/90 border border-white/10 rounded-2xl text-xs sm:text-sm text-white placeholder-stone-500 focus:outline-none focus:border-gold-400 focus:ring-1 focus:ring-gold-400"
+                  />
+                  <button
+                    type="submit"
+                    disabled={!replyText.trim() || isSending}
+                    className="px-5 py-3 rounded-2xl gold-btn text-xs sm:text-sm font-bold flex items-center space-x-2 shadow-gold-glow disabled:opacity-50 transition-all"
+                  >
+                    {isSending ? (
+                      <RefreshCw className="w-4 h-4 animate-spin text-black" />
+                    ) : (
+                      <Send className="w-4 h-4 text-black" />
+                    )}
+                    <span className="hidden sm:inline">Send</span>
+                  </button>
+                </form>
+              </div>
             </>
           ) : (
-            <div className="h-full flex flex-col items-center justify-center text-slate-500 text-xs p-6 text-center">
-              <MessageSquare className="w-12 h-12 mb-2 opacity-30 text-gold-400" />
-              <h3 className="font-serif font-bold text-white text-base">Select a conversation</h3>
-              <p className="text-slate-400 text-xs mt-1">
-                Choose a table from the left list to start live chatting
-              </p>
+            <div className="flex-1 flex items-center justify-center p-8 text-center text-xs text-stone-500">
+              Select a table from the left to start live chat.
             </div>
           )}
         </div>

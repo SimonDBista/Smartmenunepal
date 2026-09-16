@@ -33,6 +33,7 @@ export default function HotelOrdersDashboard() {
   const [hotelId, setHotelId] = useState<string>('');
   const [hotelName, setHotelName] = useState<string>('Hotel');
   const [selectedReceiptOrder, setSelectedReceiptOrder] = useState<OrderData | null>(null);
+  const [isTableBillModal, setIsTableBillModal] = useState<boolean>(false);
   const [incomingAlert, setIncomingAlert] = useState<string | null>(null);
   const [clearConfirmModal, setClearConfirmModal] = useState<{
     isOpen: boolean;
@@ -158,6 +159,7 @@ export default function HotelOrdersDashboard() {
     customerPhone?: string;
     orders: OrderData[];
     totalAmount: number;
+    totalDiscount: number;
     latestCreatedAt: string | Date;
     hasReceived: boolean;
     hasInProgress: boolean;
@@ -183,6 +185,7 @@ export default function HotelOrdersDashboard() {
           customerPhone: order.customerPhone || undefined,
           orders: [],
           totalAmount: 0,
+          totalDiscount: 0,
           latestCreatedAt: order.createdAt,
           hasReceived: false,
           hasInProgress: false,
@@ -196,6 +199,7 @@ export default function HotelOrdersDashboard() {
       group.orders.push(order);
       if (order.status !== 'cancelled') {
         group.totalAmount += order.totalAmount;
+        group.totalDiscount += ((order as any).discountAmount || 0);
       }
       if (order.customerName) group.customerName = order.customerName;
       if (order.customerPhone) group.customerPhone = order.customerPhone;
@@ -429,9 +433,16 @@ export default function HotelOrdersDashboard() {
                     </div>
 
                     <div className="text-right">
-                      <span className="text-[10px] uppercase tracking-wider text-slate-400 block font-semibold">
-                        Combined Bill
-                      </span>
+                      <div className="flex items-center justify-end space-x-1.5">
+                        <span className="text-[10px] uppercase tracking-wider text-slate-400 block font-semibold">
+                          Combined Bill
+                        </span>
+                        {group.totalDiscount > 0 && (
+                          <span className="text-[9px] font-bold text-emerald-400 bg-emerald-500/15 border border-emerald-500/30 px-1.5 py-0.5 rounded-md">
+                            -{formatNPR(group.totalDiscount)}
+                          </span>
+                        )}
+                      </div>
                       <span className="text-base font-serif font-black text-gold-400">
                         {formatNPR(group.totalAmount)}
                       </span>
@@ -581,7 +592,10 @@ export default function HotelOrdersDashboard() {
                             </div>
 
                             <button
-                              onClick={() => setSelectedReceiptOrder(order)}
+                              onClick={() => {
+                                setIsTableBillModal(false);
+                                setSelectedReceiptOrder(order);
+                              }}
                               title={`Print KOT for Round #${roundIdx + 1}`}
                               className="py-1 px-2.5 rounded-xl dark-btn text-slate-300 text-[10px] font-semibold flex items-center space-x-1 hover:border-gold-500/40 transition shrink-0"
                             >
@@ -621,8 +635,10 @@ export default function HotelOrdersDashboard() {
                         customerName: group.customerName || '',
                         customerPhone: group.customerPhone || '',
                         totalAmount: group.totalAmount,
+                        discountAmount: group.totalDiscount,
                         items: JSON.stringify(allItems),
                       };
+                      setIsTableBillModal(true);
                       setSelectedReceiptOrder(combinedOrder);
                     }}
                     className="flex-1 py-2.5 rounded-xl dark-btn text-slate-200 text-xs font-bold flex items-center justify-center space-x-1.5 hover:border-gold-500/50 transition shadow-sm"
@@ -718,6 +734,8 @@ export default function HotelOrdersDashboard() {
         onClose={() => setSelectedReceiptOrder(null)}
         order={selectedReceiptOrder}
         hotelName={hotelName}
+        isTableBill={isTableBillModal}
+        onOrderUpdated={() => fetchOrders()}
       />
     </div>
   );

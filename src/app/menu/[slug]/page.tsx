@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, Suspense } from 'react';
+import React, { useState, useEffect, useRef, Suspense } from 'react';
 import Link from 'next/link';
 import { useParams, useSearchParams, useRouter } from 'next/navigation';
 import {
@@ -24,13 +24,15 @@ import {
   Flame,
   ArrowRight,
   ZoomIn,
+  Send,
 } from 'lucide-react';
 import { MenuItemData, HotelData, OrderItem, OrderData } from '@/lib/types';
 import { translations, Language } from '@/lib/i18n';
-import { formatNPR, getCategoryDetails } from '@/lib/utils';
+import { formatNPR, getCategoryDetails, formatTime } from '@/lib/utils';
 import ThreeDViewerModal from '@/components/ThreeDViewerModal';
 import ImageZoomModal from '@/components/ImageZoomModal';
 import { playChime } from '@/lib/audio';
+import { useSocket } from '@/lib/socket';
 
 export default function CustomerMenuPage() {
   return (
@@ -112,7 +114,115 @@ function CustomerMenuContent() {
 
   const [failedImages, setFailedImages] = useState<Record<string, boolean>>({});
 
+  // Live Table Chat state
+  const { socket } = useSocket();
+  const [isChatOpen, setIsChatOpen] = useState(false);
+  const [tableMessages, setTableMessages] = useState<any[]>([]);
+  const [chatInput, setChatInput] = useState('');
+  const [unreadChatCount, setUnreadChatCount] = useState(0);
+  const [isSendingChat, setIsSendingChat] = useState(false);
+  const isSendingChatRef = useRef(false);
+  const chatEndRef = useRef<HTMLDivElement>(null);
+
   const t = translations[lang];
+
+  // Fetch table chat messages when tableNumber is set
+  useEffect(() => {
+    if (!slug || !tableNumber) return;
+
+    async function loadTableChat() {
+      try {
+        const res = await fetch(
+          `/api/public/chat/table?hotelSlug=${slug}&tableNumber=${encodeURIComponent(tableNumber)}`
+        );
+        if (res.ok) {
+          const data = await res.json();
+          setTableMessages(data.messages || []);
+        }
+      } catch (err) {
+        console.error('Failed to load table chat:', err);
+      }
+    }
+
+    loadTableChat();
+  }, [slug, tableNumber]);
+
+  // Join table socket room for real-time messages
+  useEffect(() => {
+    if (!socket || !hotel?.id || !tableNumber) return;
+
+    socket.emit('join_table', {
+      hotelId: hotel.id,
+      tableNumber,
+    });
+
+    const handleNewMessage = (msg: any) => {
+      if (msg.tableNumber === tableNumber) {
+        setTableMessages((prev) => {
+          if (prev.some((m) => m.id === msg.id)) return prev;
+          return [...prev, msg];
+        });
+
+        if (msg.sender === 'staff') {
+          try {
+            playChime();
+          } catch {}
+          if (!isChatOpen) {
+            setUnreadChatCount((prev) => prev + 1);
+          }
+        }
+      }
+    };
+
+    socket.on('chat_message', handleNewMessage);
+
+    return () => {
+      socket.off('chat_message', handleNewMessage);
+    };
+  }, [socket, hotel?.id, tableNumber, isChatOpen]);
+
+  // Auto-scroll chat to bottom
+  useEffect(() => {
+    if (isChatOpen) {
+      chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [tableMessages, isChatOpen]);
+
+  // Send customer message to table chat
+  const handleSendCustomerMessage = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!chatInput.trim() || !tableNumber || isSendingChatRef.current) return;
+
+    try {
+      isSendingChatRef.current = true;
+      setIsSendingChat(true);
+      const text = chatInput.trim();
+      const res = await fetch('/api/public/chat/table', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          hotelSlug: slug,
+          tableNumber,
+          message: text,
+          customerName: customerName || undefined,
+        }),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        setTableMessages((prev) => {
+          if (prev.some((m) => m.id === data.message.id)) return prev;
+          return [...prev, data.message];
+        });
+        setChatInput('');
+      }
+    } catch (err) {
+      console.error('Error sending chat:', err);
+    } finally {
+      isSendingChatRef.current = false;
+      setIsSendingChat(false);
+    }
+  };
 
   useEffect(() => {
     async function fetchMenu() {
@@ -435,16 +545,25 @@ function CustomerMenuContent() {
 
           {/* Active Table Number Tag */}
           <div className="inline-flex items-center space-x-2 px-3.5 py-1.5 rounded-full bg-dark-950 border border-gold-400/40 shadow-gold-glow mb-4">
-            <span className="w-2 h-2 rounded-full bg-gold-400 animate-pulse" />
+            <span className={`w-2 h-2 rounded-full ${initialTable ? 'bg-emerald-400' : 'bg-gold-400'} animate-pulse`} />
             <div className="text-xs font-bold text-white flex items-center space-x-1.5">
               <span>{t.table}:</span>
-              <input
-                type="text"
-                value={tableNumber}
-                onChange={(e) => setTableNumber(e.target.value)}
-                placeholder="Enter Table #"
-                className="w-24 bg-transparent text-xs font-bold text-gold-400 placeholder-gold-400/60 focus:outline-none border-b border-gold-400/30 focus:border-gold-400 text-center"
-              />
+              {initialTable ? (
+                <span className="text-gold-300 font-extrabold flex items-center space-x-1">
+                  <span>#{tableNumber}</span>
+                  <span className="text-[9px] text-emerald-400 bg-emerald-500/15 border border-emerald-500/30 px-1.5 py-0.5 rounded font-mono">
+                    Verified QR
+                  </span>
+                </span>
+              ) : (
+                <input
+                  type="text"
+                  value={tableNumber}
+                  onChange={(e) => setTableNumber(e.target.value)}
+                  placeholder="Enter Table #"
+                  className="w-24 bg-transparent text-xs font-bold text-gold-400 placeholder-gold-400/60 focus:outline-none border-b border-gold-400/30 focus:border-gold-400 text-center"
+                />
+              )}
             </div>
           </div>
 
@@ -913,18 +1032,36 @@ function CustomerMenuContent() {
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
-                    <label className="block text-xs font-bold text-slate-300 mb-1">
-                      {t.tableNumber} <span className="text-gold-400 font-bold">*</span>
-                    </label>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="block text-xs font-bold text-slate-300">
+                        {t.tableNumber} <span className="text-gold-400 font-bold">*</span>
+                      </label>
+                      {initialTable && (
+                        <span className="text-[10px] font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-md border border-emerald-500/20 flex items-center space-x-1">
+                          <Check className="w-2.5 h-2.5" />
+                          <span>Verified Table QR</span>
+                        </span>
+                      )}
+                    </div>
                     <input
                       type="text"
                       required
                       placeholder="e.g. 1, 5, Terrace 2"
                       value={tableNumber}
+                      readOnly={!!initialTable || !!editingOrder}
                       disabled={!!editingOrder}
                       onChange={(e) => setTableNumber(e.target.value)}
-                      className="w-full px-3.5 py-2.5 bg-dark-900 border border-surface-border rounded-xl text-xs text-white focus:outline-none focus:border-gold-500 disabled:opacity-60"
+                      className={`w-full px-3.5 py-2.5 rounded-xl text-xs text-white focus:outline-none transition ${
+                        initialTable
+                          ? 'border border-emerald-500/40 bg-emerald-950/20 text-emerald-300 cursor-not-allowed font-bold'
+                          : 'bg-dark-900 border border-surface-border focus:border-gold-500'
+                      } disabled:opacity-60`}
                     />
+                    {initialTable && (
+                      <span className="text-[10px] text-emerald-400/80 mt-1 block">
+                        Locked to Table #{initialTable} from your scanned table stand.
+                      </span>
+                    )}
                   </div>
                   <div>
                     <label className="block text-xs font-bold text-slate-300 mb-1">
@@ -1017,6 +1154,129 @@ function CustomerMenuContent() {
             : undefined
         }
       />
+
+      {/* Floating Receptionist & Staff Live Chat Button */}
+      {tableNumber && (
+        <div className={`fixed z-40 ${cart.length > 0 ? 'bottom-24 right-4' : 'bottom-6 right-4'}`}>
+          <button
+            onClick={() => {
+              setIsChatOpen(true);
+              setUnreadChatCount(0);
+            }}
+            className="group px-4 py-2.5 rounded-full bg-[#121316]/95 border border-gold-400/50 shadow-2xl backdrop-blur-xl flex items-center space-x-2.5 hover:border-gold-400 hover:scale-105 transition-all text-xs font-bold text-white relative shadow-gold-glow"
+          >
+            <div className="relative">
+              <MessageCircle className="w-4 h-4 text-gold-400" />
+              {unreadChatCount > 0 && (
+                <span className="absolute -top-2 -right-2 w-4 h-4 rounded-full bg-red-500 text-white text-[9px] font-black flex items-center justify-center animate-bounce">
+                  {unreadChatCount}
+                </span>
+              )}
+            </div>
+            <span className="hidden sm:inline">Staff Desk</span>
+            <span className="px-1.5 py-0.5 rounded-md bg-stone-800 text-[10px] text-gold-300 font-mono">
+              #{tableNumber}
+            </span>
+          </button>
+        </div>
+      )}
+
+      {/* Table Live Chat Slide-Over Drawer */}
+      {isChatOpen && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/85 backdrop-blur-md animate-fade-in p-0 sm:p-4">
+          <div className="relative w-full max-w-lg h-[80vh] sm:h-[650px] bg-[#0e0f12] border border-white/10 rounded-t-3xl sm:rounded-3xl shadow-2xl flex flex-col overflow-hidden">
+            {/* Drawer Header */}
+            <div className="p-4 px-5 bg-[#121316] border-b border-white/10 flex items-center justify-between">
+              <div className="flex items-center space-x-3">
+                <div className="w-9 h-9 rounded-xl bg-gold-400/20 border border-gold-400/30 flex items-center justify-center text-gold-400">
+                  <MessageCircle className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-serif font-bold text-sm text-white flex items-center space-x-2">
+                    <span>Receptionist & Staff Desk</span>
+                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                  </h3>
+                  <span className="text-[10px] text-stone-400">
+                    Live Chat connected to Table #{tableNumber}
+                  </span>
+                </div>
+              </div>
+              <button
+                onClick={() => setIsChatOpen(false)}
+                className="p-1.5 rounded-lg text-stone-400 hover:text-white hover:bg-stone-800 transition"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Messages Scroll Body */}
+            <div className="flex-1 p-5 overflow-y-auto space-y-3 bg-[#0a0b0d]">
+              {tableMessages.length === 0 ? (
+                <div className="py-16 text-center max-w-xs mx-auto">
+                  <div className="w-12 h-12 rounded-2xl bg-gold-400/10 border border-gold-400/20 text-gold-400 flex items-center justify-center mx-auto mb-3">
+                    <Sparkles className="w-6 h-6" />
+                  </div>
+                  <h4 className="text-sm font-bold text-white mb-1">
+                    Direct Line to Hotel Staff
+                  </h4>
+                  <p className="text-xs text-stone-400 leading-relaxed">
+                    Have a question about a dish, need napkins, or want water? Send a message directly from Table #{tableNumber} and staff will respond promptly!
+                  </p>
+                </div>
+              ) : (
+                tableMessages.map((m) => {
+                  const isCustomer = m.sender === 'customer';
+                  return (
+                    <div
+                      key={m.id}
+                      className={`flex flex-col ${isCustomer ? 'items-end' : 'items-start'}`}
+                    >
+                      <div
+                        className={`max-w-[80%] rounded-2xl p-3 text-xs sm:text-sm ${
+                          isCustomer
+                            ? 'bg-gradient-to-r from-gold-500 to-gold-400 text-black font-semibold rounded-tr-sm shadow-md'
+                            : 'bg-stone-900 border border-white/10 text-stone-100 rounded-tl-sm'
+                        }`}
+                      >
+                        <span className="text-[9px] font-bold uppercase tracking-wider block mb-1 opacity-75">
+                          {isCustomer ? `Table #${tableNumber} (You)` : 'Staff • Reception'}
+                        </span>
+                        <p className="whitespace-pre-wrap leading-relaxed">{m.message}</p>
+                      </div>
+                      <span className="text-[9px] text-stone-500 font-mono mt-1 px-1">
+                        {formatTime(m.createdAt)}
+                      </span>
+                    </div>
+                  );
+                })
+              )}
+              <div ref={chatEndRef} />
+            </div>
+
+            {/* Chat Input Bar */}
+            <div className="p-3.5 px-4 bg-[#121316] border-t border-white/10">
+              <form onSubmit={handleSendCustomerMessage} className="flex items-center space-x-2">
+                <input
+                  type="text"
+                  placeholder="Type a message to reception..."
+                  value={chatInput}
+                  onChange={(e) => setChatInput(e.target.value)}
+                  disabled={isSendingChat}
+                  className="flex-1 px-3.5 py-2.5 bg-stone-900 border border-white/10 rounded-xl text-xs text-white placeholder-stone-500 focus:outline-none focus:border-gold-400"
+                />
+                <button
+                  type="submit"
+                  disabled={!chatInput.trim() || isSendingChat}
+                  className="px-4 py-2.5 rounded-xl gold-btn text-xs font-bold flex items-center space-x-1.5 shadow-gold-glow disabled:opacity-50 text-black"
+                >
+                  <Send className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">Send</span>
+                </button>
+              </form>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

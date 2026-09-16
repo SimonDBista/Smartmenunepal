@@ -10,10 +10,24 @@ export async function GET(request: NextRequest) {
     }
 
     const { searchParams } = new URL(request.url);
+    const tableNumber = searchParams.get('tableNumber');
     const orderId = searchParams.get('orderId');
 
+    // Case 1: Specific table chat messages
+    if (tableNumber) {
+      const cleanTable = String(tableNumber).trim();
+      const messages = await prisma.chatMessage.findMany({
+        where: {
+          hotelId: auth.hotelId,
+          tableNumber: cleanTable,
+        },
+        orderBy: { createdAt: 'asc' },
+      });
+      return NextResponse.json({ messages });
+    }
+
+    // Case 2: Specific order chat messages
     if (orderId) {
-      // Get chat messages for specific order
       const messages = await prisma.chatMessage.findMany({
         where: { hotelId: auth.hotelId, orderId },
         orderBy: { createdAt: 'asc' },
@@ -21,26 +35,104 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ messages });
     }
 
-    // List recent active conversations / orders with chats
-    const ordersWithChats = await prisma.order.findMany({
-      where: {
-        hotelId: auth.hotelId,
-        chatMessages: { some: {} },
-      },
-      include: {
-        chatMessages: {
-          orderBy: { createdAt: 'desc' },
-          take: 1,
-        },
-        _count: {
-          select: { chatMessages: true },
-        },
-      },
-      orderBy: { updatedAt: 'desc' },
-      take: 50,
+    // Case 3: List all tables in natural ascending order with their chat & order statuses
+    let tables = await prisma.restaurantTable.findMany({
+      where: { hotelId: auth.hotelId },
     });
 
-    return NextResponse.json({ conversations: ordersWithChats });
+    // If no tables exist yet, initialize default tables 1 to 8
+    if (tables.length === 0) {
+      const defaultTables = [
+        { tableNumber: '1', name: 'Main Dining', capacity: 4 },
+        { tableNumber: '2', name: 'Main Dining', capacity: 4 },
+        { tableNumber: '3', name: 'Main Dining', capacity: 4 },
+        { tableNumber: '4', name: 'Main Dining', capacity: 4 },
+        { tableNumber: '5', name: 'Window Booth', capacity: 6 },
+        { tableNumber: '6', name: 'Window Booth', capacity: 6 },
+        { tableNumber: '7', name: 'Outdoor Terrace', capacity: 4 },
+        { tableNumber: '8', name: 'Outdoor Terrace', capacity: 4 },
+      ];
+      for (const t of defaultTables) {
+        await prisma.restaurantTable.create({
+          data: {
+            hotelId: auth.hotelId,
+            tableNumber: t.tableNumber,
+            name: t.name,
+            capacity: t.capacity,
+            isActive: true,
+          },
+        });
+      }
+      tables = await prisma.restaurantTable.findMany({
+        where: { hotelId: auth.hotelId },
+      });
+    }
+
+    // Fetch active orders to associate with tables
+    const activeOrders = await prisma.order.findMany({
+      where: {
+        hotelId: auth.hotelId,
+        status: { in: ['received', 'in_progress'] },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    // Fetch latest chat message for each table
+    const allMessages = await prisma.chatMessage.findMany({
+      where: { hotelId: auth.hotelId },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    // Build table conversation items
+    const tableConversations = tables.map((t) => {
+      // Find latest message for this table
+      const tableMsgs = allMessages.filter((m) => m.tableNumber === t.tableNumber);
+      const latestMessage = tableMsgs[0] || null;
+      const unreadCount = tableMsgs.filter((m) => m.sender === 'customer').length;
+
+      // Find active order for this table
+      const activeOrder = activeOrders.find((o) => o.tableNumber === t.tableNumber) || null;
+
+      return {
+        id: t.id,
+        tableNumber: t.tableNumber,
+        name: t.name,
+        capacity: t.capacity,
+        isActive: t.isActive,
+        activeOrder: activeOrder
+          ? {
+              id: activeOrder.id,
+              status: activeOrder.status,
+              customerName: activeOrder.customerName,
+              totalAmount: activeOrder.totalAmount,
+              createdAt: activeOrder.createdAt,
+            }
+          : null,
+        latestMessage: latestMessage
+          ? {
+              id: latestMessage.id,
+              sender: latestMessage.sender,
+              message: latestMessage.message,
+              createdAt: latestMessage.createdAt,
+            }
+          : null,
+        messageCount: tableMsgs.length,
+        unreadCount,
+      };
+    });
+
+    // Sort tables in natural ascending order: 1, 2, 3 ... 9, 10, 11
+    tableConversations.sort((a, b) =>
+      a.tableNumber.localeCompare(b.tableNumber, undefined, {
+        numeric: true,
+        sensitivity: 'base',
+      })
+    );
+
+    return NextResponse.json({
+      hotelId: auth.hotelId,
+      tables: tableConversations,
+    });
   } catch (error) {
     console.error('Hotel chat get error:', error);
     return NextResponse.json({ error: 'Failed to fetch chat messages' }, { status: 500 });
@@ -55,46 +147,74 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { orderId, message } = body;
+    const { tableNumber, message, orderId } = body;
 
-    if (!orderId || !message || !message.trim()) {
-      return NextResponse.json(
-        { error: 'OrderId and message are required' },
-        { status: 400 }
-      );
+    if (!tableNumber || !String(tableNumber).trim()) {
+      return NextResponse.json({ error: 'tableNumber is required' }, { status: 400 });
     }
 
-    const order = await prisma.order.findFirst({
-      where: { id: orderId, hotelId: auth.hotelId },
-    });
+    if (!message || !String(message).trim()) {
+      return NextResponse.json({ error: 'message cannot be empty' }, { status: 400 });
+    }
 
-    if (!order) {
-      return NextResponse.json({ error: 'Order not found' }, { status: 404 });
+    const cleanTable = String(tableNumber).trim();
+    const cleanMessage = String(message).trim().slice(0, 2000);
+
+    // If orderId is provided, verify it belongs to hotel
+    let verifiedOrderId: string | null = null;
+    if (orderId) {
+      const order = await prisma.order.findFirst({
+        where: { id: orderId, hotelId: auth.hotelId },
+        select: { id: true },
+      });
+      if (order) verifiedOrderId = order.id;
+    }
+
+    // If orderId was not provided, see if there is an active order for this table
+    if (!verifiedOrderId) {
+      const activeOrder = await prisma.order.findFirst({
+        where: {
+          hotelId: auth.hotelId,
+          tableNumber: cleanTable,
+          status: { in: ['received', 'in_progress'] },
+        },
+        orderBy: { createdAt: 'desc' },
+        select: { id: true },
+      });
+      if (activeOrder) verifiedOrderId = activeOrder.id;
     }
 
     const chatMessage = await prisma.chatMessage.create({
       data: {
         hotelId: auth.hotelId,
-        orderId: order.id,
+        tableNumber: cleanTable,
+        orderId: verifiedOrderId,
         sender: 'staff',
-        message: message.trim(),
+        message: cleanMessage,
       },
     });
 
-    // Realtime broadcast to customer & hotel rooms
+    // Realtime broadcast via Socket.io
     try {
       const io = (global as any).io;
       if (io) {
-        io.to(`order_${orderId}`).emit('chat_message', chatMessage);
+        // Emit to table room
+        io.to(`table_${auth.hotelId}_${cleanTable}`).emit('chat_message', chatMessage);
+
+        // Emit to order room if linked
+        if (verifiedOrderId) {
+          io.to(`order_${verifiedOrderId}`).emit('chat_message', chatMessage);
+        }
+
+        // Notify hotel dashboard room for audio alert and list update
         io.to(`hotel_${auth.hotelId}`).emit('chat_notification', {
-          orderId,
-          tableNumber: order.tableNumber,
-          customerName: order.customerName,
+          tableNumber: cleanTable,
+          orderId: verifiedOrderId,
           message: chatMessage,
         });
       }
     } catch (socketErr) {
-      console.warn('Socket chat staff emit error:', socketErr);
+      console.warn('Socket emit error:', socketErr);
     }
 
     return NextResponse.json({ success: true, message: chatMessage });
@@ -112,19 +232,26 @@ export async function DELETE(request: NextRequest) {
     }
 
     const { searchParams } = new URL(request.url);
+    const tableNumber = searchParams.get('tableNumber');
     const orderId = searchParams.get('orderId');
+
+    if (tableNumber) {
+      await prisma.chatMessage.deleteMany({
+        where: { hotelId: auth.hotelId, tableNumber: String(tableNumber).trim() },
+      });
+      return NextResponse.json({ success: true, message: `Chat cleared for Table ${tableNumber}` });
+    }
 
     if (orderId) {
       await prisma.chatMessage.deleteMany({
-        where: { orderId, hotelId: auth.hotelId },
+        where: { hotelId: auth.hotelId, orderId },
       });
-      return NextResponse.json({ success: true, message: 'Chat messages cleared' });
+      return NextResponse.json({ success: true, message: 'Chat cleared for order' });
     }
 
-    return NextResponse.json({ error: 'orderId parameter required' }, { status: 400 });
+    return NextResponse.json({ error: 'tableNumber or orderId parameter required' }, { status: 400 });
   } catch (error) {
     console.error('Hotel chat delete error:', error);
     return NextResponse.json({ error: 'Failed to delete chat messages' }, { status: 500 });
   }
 }
-

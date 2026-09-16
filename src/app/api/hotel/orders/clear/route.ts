@@ -51,6 +51,7 @@ export async function POST(request: NextRequest) {
         customerName: o.customerName || null,
         customerPhone: o.customerPhone || null,
         totalAmount: o.totalAmount,
+        discountAmount: (o as any).discountAmount || 0,
         items: typeof o.items === 'string' ? o.items : JSON.stringify(o.items),
         notes: o.notes || null,
         orderDate:
@@ -81,7 +82,7 @@ export async function POST(request: NextRequest) {
         // Direct SQLite insertion fallback
         for (const s of salesData) {
           await prisma.$executeRawUnsafe(
-            `INSERT INTO HistoricalSale (id, hotelId, orderId, tableNumber, customerName, customerPhone, totalAmount, items, notes, orderDate, settledAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            `INSERT INTO HistoricalSale (id, hotelId, orderId, tableNumber, customerName, customerPhone, totalAmount, discountAmount, items, notes, orderDate, settledAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             s.id,
             s.hotelId,
             s.orderId,
@@ -89,6 +90,7 @@ export async function POST(request: NextRequest) {
             s.customerName,
             s.customerPhone,
             s.totalAmount,
+            s.discountAmount,
             s.items,
             s.notes,
             s.orderDate,

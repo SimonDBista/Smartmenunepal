@@ -89,7 +89,12 @@ export async function GET(request: NextRequest) {
     const historicalTotal = historicalSales.reduce((sum, s) => sum + s.totalAmount, 0);
     const activeDoneTotal = activeDoneOrders.reduce((sum, o) => sum + o.totalAmount, 0);
 
+    const activeDiscounts = activeDoneOrders.reduce((sum, o) => sum + ((o as any).discountAmount || 0), 0);
+    const historicalDiscounts = historicalSales.reduce((sum, s) => sum + ((s as any).discountAmount || 0), 0);
+    const totalDiscounts = activeDiscounts + historicalDiscounts;
+
     const totalRevenue = activeDoneTotal + historicalTotal;
+    const grossSales = totalRevenue + totalDiscounts;
     const completedCount = activeDoneOrders.length + historicalSales.length;
     const totalOrdersCount = currentOrders.length + historicalSales.length;
     const pendingCount = activePendingOrders.length;
@@ -157,10 +162,71 @@ export async function GET(request: NextRequest) {
 
     const dailyTrends = Object.values(daysMap);
 
+    // Query expenses for the selected date range
+    const expenseWhere: any = { hotelId: auth.hotelId };
+    if (startDate) {
+      expenseWhere.date = { gte: startDate };
+    }
+    const expenses = await prisma.expense.findMany({
+      where: expenseWhere,
+      orderBy: { date: 'desc' },
+    });
+
+    const totalExpenses = expenses.reduce((sum, e) => sum + e.amount, 0);
+    const netProfit = Math.round(totalRevenue - totalExpenses);
+
+    // Group expenses by category
+    const categoryMap: Record<string, number> = {};
+    expenses.forEach((e) => {
+      categoryMap[e.category] = (categoryMap[e.category] || 0) + e.amount;
+    });
+
+    const categoryBreakdown = Object.entries(categoryMap)
+      .map(([category, amount]) => ({
+        category,
+        amount,
+        percentage: totalExpenses > 0 ? Math.round((amount / totalExpenses) * 100) : 0,
+      }))
+      .sort((a, b) => b.amount - a.amount);
+
+    // Construct unified orderRecords list (sorted newest to oldest)
+    const orderRecords = [
+      ...activeDoneOrders.map((o) => ({
+        id: o.id,
+        type: 'active',
+        tableNumber: o.tableNumber,
+        customerName: o.customerName || 'Walk-in Guest',
+        customerPhone: o.customerPhone || null,
+        totalAmount: o.totalAmount,
+        discountAmount: (o as any).discountAmount || 0,
+        items: typeof o.items === 'string' ? o.items : JSON.stringify(o.items),
+        notes: o.notes || null,
+        status: o.status,
+        createdAt: o.createdAt,
+      })),
+      ...historicalSales.map((s) => ({
+        id: s.id,
+        type: 'historical',
+        tableNumber: s.tableNumber,
+        customerName: s.customerName || 'Walk-in Guest',
+        customerPhone: s.customerPhone || null,
+        totalAmount: s.totalAmount,
+        discountAmount: (s as any).discountAmount || 0,
+        items: typeof s.items === 'string' ? s.items : JSON.stringify(s.items),
+        notes: s.notes || null,
+        status: 'settled',
+        createdAt: s.orderDate || s.settledAt,
+      })),
+    ].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
     return NextResponse.json({
       range,
       summary: {
         totalRevenue: Math.round(totalRevenue),
+        grossSales: Math.round(grossSales),
+        totalDiscounts: Math.round(totalDiscounts),
+        totalExpenses: Math.round(totalExpenses),
+        netProfit,
         totalOrdersCount,
         completedCount,
         pendingCount,
@@ -169,6 +235,9 @@ export async function GET(request: NextRequest) {
       },
       topItems,
       dailyTrends,
+      expenses: expenses.slice(0, 50),
+      categoryBreakdown,
+      orderRecords,
     });
   } catch (error) {
     console.error('Hotel reports error:', error);

@@ -31,10 +31,14 @@ model Hotel {
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @updatedAt
   
-  menuItems    MenuItem[]
-  orders       Order[]
-  chatMessages ChatMessage[]
-  feedback     Feedback[]
+  menuItems       MenuItem[]
+  orders          Order[]
+  chatMessages    ChatMessage[]
+  feedback        Feedback[]
+  historicalSales HistoricalSale[]
+  tables          RestaurantTable[]
+  dailyRegisters  DailyRegister[]
+  expenses        Expense[]
 }
 
 model MenuItem {
@@ -65,6 +69,7 @@ model Order {
   customerPhone String?
   items         String        // JSON stringified: [{ id, name, price, quantity, notes }]
   totalAmount   Float
+  discountAmount Float        @default(0)
   status        String        @default("received") // "received" | "in_progress" | "done" | "cancelled"
   notes         String?
   createdAt     DateTime      @default(now())
@@ -79,17 +84,19 @@ model Order {
 }
 
 model ChatMessage {
-  id        String   @id @default(cuid())
-  hotelId   String
-  hotel     Hotel    @relation(fields: [hotelId], references: [id], onDelete: Cascade)
-  orderId   String
-  order     Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  sender    String   // "customer" | "staff"
-  message   String
-  createdAt DateTime @default(now())
+  id          String   @id @default(cuid())
+  hotelId     String
+  hotel       Hotel    @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  tableNumber String?  // Table number (e.g. "1", "2", "Rooftop-VIP")
+  orderId     String?
+  order       Order?   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  sender      String   // "customer" | "staff"
+  message     String
+  createdAt   DateTime @default(now())
 
-  @@index([orderId])
   @@index([hotelId])
+  @@index([hotelId, tableNumber])
+  @@index([orderId])
 }
 
 model Feedback {
@@ -105,3 +112,75 @@ model Feedback {
 
   @@index([hotelId])
 }
+
+model HistoricalSale {
+  id            String   @id @default(cuid())
+  hotelId       String
+  hotel         Hotel    @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  orderId       String?
+  tableNumber   String
+  customerName  String?
+  customerPhone String?
+  totalAmount   Float
+  discountAmount Float   @default(0)
+  items         String   // JSON stringified dishes
+  notes         String?
+  orderDate     DateTime // original order createdAt
+  settledAt     DateTime @default(now())
+
+  @@index([hotelId])
+  @@index([orderDate])
+  @@index([settledAt])
+}
+
+model RestaurantTable {
+  id          String   @id @default(cuid())
+  hotelId     String
+  hotel       Hotel    @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  tableNumber String   // e.g., "1", "2", "T-05", "Rooftop-1"
+  name        String?  // e.g., "Terrace Booth", "Indoor Hall"
+  capacity    Int?     @default(4)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([hotelId, tableNumber])
+  @@index([hotelId])
+}
+
+model DailyRegister {
+  id             String    @id @default(cuid())
+  hotelId        String
+  hotel          Hotel     @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  date           String    // YYYY-MM-DD
+  openingBalance Float     @default(0)
+  actualClosing  Float?
+  notes          String?
+  isClosed       Boolean   @default(false)
+  closedAt       DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@unique([hotelId, date])
+  @@index([hotelId])
+  @@index([date])
+}
+
+model Expense {
+  id            String   @id @default(cuid())
+  hotelId       String
+  hotel         Hotel    @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  date          DateTime @default(now())
+  category      String   // "Meat & Poultry" | "Groceries & Rice" | "Staff Salaries" | "Utilities & Gas" | "Maintenance" | "Other"
+  title         String
+  amount        Float
+  paymentMethod String   @default("cash") // "cash" | "online" | "bank"
+  notes         String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([hotelId])
+  @@index([hotelId, category])
+  @@index([date])
+}
+

@@ -10,7 +10,9 @@ const dev = process.env.NODE_ENV !== 'production';
 const hostname = process.env.HOSTNAME || '0.0.0.0';
 const port = parseInt(process.env.PORT || '3000', 10);
 
-const app = next({ dev, hostname, port });
+console.log(`> Starting SmartMenu Nepal server (${dev ? 'development' : 'production'})...`);
+
+const app = next({ dev, hostname: dev ? 'localhost' : hostname, port });
 const handle = app.getRequestHandler();
 
 const MIME_TYPES = {
@@ -89,14 +91,25 @@ app.prepare().then(() => {
       }
     });
 
+    // Customer or staff joins table-specific room for live table chat
+    socket.on('join_table', (data) => {
+      if (typeof data === 'string' && data.trim()) {
+        socket.join(`table_${data.trim()}`);
+      } else if (data && data.hotelId && data.tableNumber) {
+        socket.join(`table_${String(data.hotelId).trim()}_${String(data.tableNumber).trim()}`);
+      }
+    });
+
     socket.on('disconnect', () => {
       // client disconnected
     });
   });
 
-  server.listen(port, (err) => {
+  server.listen(port, '0.0.0.0', (err) => {
     if (err) throw err;
-    console.log(`> SmartMenu Nepal ready on http://${hostname}:${port}`);
+    console.log(`> SmartMenu Nepal ready on:`);
+    console.log(`  - Local:   http://localhost:${port}`);
+    console.log(`  - Network: http://127.0.0.1:${port}`);
     console.log(`> Socket.io listening on path /api/socketio`);
   });
 });

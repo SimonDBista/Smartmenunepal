@@ -20,6 +20,10 @@ import {
   AlertCircle,
   Link2,
   ZoomIn,
+  Flame,
+  ArrowUpDown,
+  Award,
+  TrendingUp,
 } from 'lucide-react';
 import { MenuItemData } from '@/lib/types';
 import { formatNPR, SYSTEM_CATEGORIES, getCategoryDetails } from '@/lib/utils';
@@ -30,6 +34,7 @@ export default function HotelMenuManagerPage() {
   const [loading, setLoading] = useState(true);
   const [activeCategory, setActiveCategory] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
+  const [sortBy, setSortBy] = useState<'default' | 'most_ordered' | 'price_asc' | 'price_desc' | 'name'>('default');
 
   // Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -409,15 +414,46 @@ export default function HotelMenuManagerPage() {
     return [...standardKeys, ...existingCustom];
   }, [items]);
 
-  const filteredItems = items.filter((item) => {
-    const matchesCategory =
-      activeCategory === 'all' || item.category === activeCategory;
-    const matchesSearch =
-      item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (item.description &&
-        item.description.toLowerCase().includes(searchQuery.toLowerCase()));
-    return matchesCategory && matchesSearch;
-  });
+  // Hotel-wide sorted rank map based on order sales
+  const itemRankMap = useMemo(() => {
+    const sorted = [...items].sort((a, b) => (b.totalOrdered || 0) - (a.totalOrdered || 0));
+    const map = new Map<string, number>();
+    sorted.forEach((it, idx) => {
+      if ((it.totalOrdered || 0) > 0) {
+        map.set(it.id, idx + 1);
+      }
+    });
+    return map;
+  }, [items]);
+
+  const filteredItems = useMemo(() => {
+    const filtered = items.filter((item) => {
+      const matchesCategory =
+        activeCategory === 'all' || item.category === activeCategory;
+      const matchesSearch =
+        item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (item.description &&
+          item.description.toLowerCase().includes(searchQuery.toLowerCase()));
+      return matchesCategory && matchesSearch;
+    });
+
+    if (sortBy === 'most_ordered') {
+      return [...filtered].sort((a, b) => {
+        const countA = a.totalOrdered || 0;
+        const countB = b.totalOrdered || 0;
+        if (countB !== countA) return countB - countA;
+        return (b.totalRevenue || 0) - (a.totalRevenue || 0);
+      });
+    } else if (sortBy === 'price_asc') {
+      return [...filtered].sort((a, b) => a.price - b.price);
+    } else if (sortBy === 'price_desc') {
+      return [...filtered].sort((a, b) => b.price - a.price);
+    } else if (sortBy === 'name') {
+      return [...filtered].sort((a, b) => a.name.localeCompare(b.name));
+    }
+
+    return filtered;
+  }, [items, activeCategory, searchQuery, sortBy]);
 
   return (
     <div className="space-y-8">
@@ -443,12 +479,36 @@ export default function HotelMenuManagerPage() {
 
       {/* Filter Tabs & Search */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        {/* Category Pills */}
+        {/* Category Pills & Most Ordered Quick Pill */}
         <div className="flex items-center space-x-2 overflow-x-auto pb-1 scrollbar-none">
+          {/* Quick Toggle: Most Ordered */}
+          <button
+            onClick={() => {
+              if (sortBy === 'most_ordered') {
+                setSortBy('default');
+              } else {
+                setSortBy('most_ordered');
+              }
+            }}
+            className={`px-4 py-2 rounded-xl text-xs font-black whitespace-nowrap transition-all flex items-center space-x-1.5 shadow-sm ${
+              sortBy === 'most_ordered'
+                ? 'bg-gradient-to-r from-amber-500 via-orange-500 to-rose-500 text-white shadow-orange-500/25 border border-amber-300 ring-2 ring-amber-400/40'
+                : 'dark-btn text-amber-400 hover:text-amber-300 hover:border-amber-500/40'
+            }`}
+          >
+            <Flame className={`w-3.5 h-3.5 ${sortBy === 'most_ordered' ? 'animate-bounce text-yellow-200' : 'text-amber-400'}`} />
+            <span>Most Ordered</span>
+            <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
+              sortBy === 'most_ordered' ? 'bg-black/40 text-yellow-200' : 'bg-amber-500/15 text-amber-300'
+            }`}>
+              Top
+            </span>
+          </button>
+
           <button
             onClick={() => setActiveCategory('all')}
             className={`px-4 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition-all flex items-center space-x-1.5 ${
-              activeCategory === 'all'
+              activeCategory === 'all' && sortBy !== 'most_ordered'
                 ? 'gold-btn text-black shadow-gold-glow'
                 : 'dark-btn text-slate-400 hover:text-white'
             }`}
@@ -465,7 +525,7 @@ export default function HotelMenuManagerPage() {
                 key={cat}
                 onClick={() => setActiveCategory(cat)}
                 className={`px-4 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition-all flex items-center space-x-1.5 ${
-                  activeCategory === cat
+                  activeCategory === cat && sortBy !== 'most_ordered'
                     ? 'gold-btn text-black shadow-gold-glow'
                     : 'dark-btn text-slate-400 hover:text-white'
                 }`}
@@ -480,18 +540,62 @@ export default function HotelMenuManagerPage() {
           })}
         </div>
 
-        {/* Search */}
-        <div className="relative min-w-[240px]">
-          <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-500" />
-          <input
-            type="text"
-            placeholder="Search items..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-9 pr-3 py-2 bg-dark-900 border border-white/[0.08] rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-gold-500 shadow-inner"
-          />
+        {/* Search & Sort Dropdown */}
+        <div className="flex items-center space-x-2.5">
+          <div className="relative min-w-[200px]">
+            <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-500" />
+            <input
+              type="text"
+              placeholder="Search items..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full pl-9 pr-3 py-2 bg-dark-900 border border-white/[0.08] rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-gold-500 shadow-inner"
+            />
+          </div>
+
+          <div className="relative shrink-0">
+            <select
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value as any)}
+              className="px-3 py-2 bg-dark-900 border border-white/[0.1] rounded-xl text-xs text-slate-200 font-bold focus:outline-none focus:border-gold-500 cursor-pointer shadow-inner pr-7"
+            >
+              <option value="default">Default Order</option>
+              <option value="most_ordered">🔥 Most Ordered (First to Last)</option>
+              <option value="price_desc">💰 Price: High to Low</option>
+              <option value="price_asc">🏷️ Price: Low to High</option>
+              <option value="name">🔤 Name (A - Z)</option>
+            </select>
+          </div>
         </div>
       </div>
+
+      {/* Most Ordered Informational Insights Banner */}
+      {sortBy === 'most_ordered' && (
+        <div className="p-4 rounded-2xl bg-gradient-to-r from-amber-500/10 via-orange-500/10 to-gold-500/10 border border-amber-500/30 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs shadow-lg animate-fade-in">
+          <div className="flex items-center space-x-3">
+            <div className="w-9 h-9 rounded-xl bg-amber-500/20 text-amber-300 flex items-center justify-center border border-amber-500/30 shrink-0">
+              <Flame className="w-5 h-5 animate-pulse text-amber-400" />
+            </div>
+            <div>
+              <div className="flex items-center space-x-2">
+                <span className="font-serif font-black text-white text-sm">Most Ordered & Bestseller Ranking</span>
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                  Real Sales Data
+                </span>
+              </div>
+              <p className="text-stone-400 text-[11px] mt-0.5">
+                Displaying all dishes sorted strictly from #1 highest selling down to least ordered (first to last).
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={() => setSortBy('default')}
+            className="text-[11px] font-bold text-amber-400 hover:text-white px-3 py-1.5 rounded-xl bg-black/40 border border-white/10 hover:border-amber-400/40 whitespace-nowrap self-start sm:self-center transition"
+          >
+            Reset to Default
+          </button>
+        </div>
+      )}
 
       {/* Items Grid */}
       {loading ? (
@@ -580,7 +684,41 @@ export default function HotelMenuManagerPage() {
                   <span>{getCategoryDetails(item.category).label}</span>
                 </div>
 
-                {item.is3dEnabled && (
+                {/* Sales Rank & Ordered Count Badge */}
+                {(() => {
+                  const rank = itemRankMap.get(item.id);
+                  const count = item.totalOrdered || 0;
+                  if (rank) {
+                    return (
+                      <div
+                        className={`absolute top-2.5 right-2.5 px-2 py-0.5 rounded-lg text-[10px] font-black flex items-center space-x-1 shadow-lg backdrop-blur z-10 ${
+                          rank === 1
+                            ? 'bg-gradient-to-r from-amber-400 to-yellow-500 text-black border border-yellow-200 shadow-yellow-500/30 ring-1 ring-yellow-300'
+                            : rank === 2
+                            ? 'bg-gradient-to-r from-slate-200 to-slate-400 text-slate-900 border border-white'
+                            : rank === 3
+                            ? 'bg-gradient-to-r from-amber-700 to-orange-700 text-amber-100 border border-amber-500/50'
+                            : 'bg-black/85 text-amber-300 border border-amber-500/30'
+                        }`}
+                      >
+                        <span>
+                          {rank === 1 ? '👑 #1' : rank === 2 ? '🥈 #2' : rank === 3 ? '🥉 #3' : `🔥 #${rank}`}
+                        </span>
+                        <span className="text-[9px] font-bold">({count} sold)</span>
+                      </div>
+                    );
+                  }
+                  if (sortBy === 'most_ordered') {
+                    return (
+                      <div className="absolute top-2.5 right-2.5 px-2 py-0.5 rounded-lg bg-black/75 text-slate-400 border border-white/10 text-[9px] font-bold z-10">
+                        0 sold yet
+                      </div>
+                    );
+                  }
+                  return null;
+                })()}
+
+                {item.is3dEnabled && !itemRankMap.has(item.id) && (
                   <div className="absolute top-2.5 right-2.5 px-2.5 py-0.5 rounded-full bg-brandPink-500 text-white text-[9px] font-bold flex items-center space-x-1 shadow-pink-glow">
                     <Box className="w-3 h-3" />
                     <span>3D</span>
@@ -602,9 +740,16 @@ export default function HotelMenuManagerPage() {
                 </div>
 
                 <div className="mt-5 pt-3.5 border-t border-white/[0.08] flex items-center justify-between">
-                  <span className="text-base font-serif font-black text-gold-400">
-                    {formatNPR(item.price)}
-                  </span>
+                  <div>
+                    <span className="text-base font-serif font-black text-gold-400 block">
+                      {formatNPR(item.price)}
+                    </span>
+                    {(item.totalOrdered || 0) > 0 && (
+                      <span className="text-[10px] text-emerald-400 font-semibold block mt-0.5">
+                        {item.totalOrdered} ordered • {formatNPR(item.totalRevenue || 0)}
+                      </span>
+                    )}
+                  </div>
 
                   {/* 1-Click Availability Toggle */}
                   <button

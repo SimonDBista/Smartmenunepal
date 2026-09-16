@@ -14,14 +14,35 @@ export async function PATCH(
 
     const orderId = params.id;
     const body = await request.json();
-    const { status } = body;
+    const { status, totalAmount, discountAmount, notes } = body;
 
-    const validStatuses = ['received', 'in_progress', 'done', 'cancelled'];
-    if (!status || !validStatuses.includes(status)) {
-      return NextResponse.json(
-        { error: 'Invalid status. Must be one of: received, in_progress, done, cancelled' },
-        { status: 400 }
-      );
+    const updateData: any = {};
+
+    if (status !== undefined) {
+      const validStatuses = ['received', 'in_progress', 'done', 'cancelled'];
+      if (!validStatuses.includes(status)) {
+        return NextResponse.json(
+          { error: 'Invalid status. Must be one of: received, in_progress, done, cancelled' },
+          { status: 400 }
+        );
+      }
+      updateData.status = status;
+    }
+
+    if (totalAmount !== undefined) {
+      updateData.totalAmount = Math.max(0, parseFloat(String(totalAmount)) || 0);
+    }
+
+    if (discountAmount !== undefined) {
+      updateData.discountAmount = Math.max(0, parseFloat(String(discountAmount)) || 0);
+    }
+
+    if (notes !== undefined) {
+      updateData.notes = notes ? String(notes).trim() : null;
+    }
+
+    if (Object.keys(updateData).length === 0) {
+      return NextResponse.json({ error: 'No fields to update' }, { status: 400 });
     }
 
     const existing = await prisma.order.findFirst({
@@ -34,7 +55,7 @@ export async function PATCH(
 
     const updated = await prisma.order.update({
       where: { id: orderId },
-      data: { status },
+      data: updateData,
       include: {
         hotel: {
           select: { name: true, slug: true },

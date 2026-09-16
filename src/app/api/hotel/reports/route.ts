@@ -10,32 +10,44 @@ export async function GET(request: NextRequest) {
     }
 
     const { searchParams } = new URL(request.url);
-    const range = searchParams.get('range') || '7days'; // 'today' | '7days' | 'month' | 'all'
+    const range = searchParams.get('range') || '7days'; // 'today' | 'yesterday' | '7days' | 'month' | 'all'
 
-    // Determine start date filter
+    // Determine start and end date filter in Nepal Time (Asia/Kathmandu UTC+5:45)
     const now = new Date();
+    const nepalTodayStr = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kathmandu' }).format(now);
+    const startOfToday = new Date(`${nepalTodayStr}T00:00:00+05:45`);
+
     let startDate: Date | null = null;
+    let endDate: Date | null = null;
     let chartDays = 7;
 
     if (range === 'today') {
-      // Exact start of today in Nepal Time (Asia/Kathmandu UTC+5:45)
-      const nepalTodayStr = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kathmandu' }).format(now);
-      startDate = new Date(`${nepalTodayStr}T00:00:00+05:45`);
+      startDate = startOfToday;
+      endDate = null;
+      chartDays = 1;
+    } else if (range === 'yesterday') {
+      startDate = new Date(startOfToday.getTime() - 24 * 60 * 60 * 1000);
+      endDate = startOfToday;
       chartDays = 1;
     } else if (range === '7days') {
       startDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+      endDate = null;
       chartDays = 7;
     } else if (range === 'month') {
       startDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+      endDate = null;
       chartDays = 30;
     } else if (range === 'all') {
       startDate = null; // all time
+      endDate = null;
       chartDays = 30; // display last 30 days on daily trend chart
     }
 
     // 1. Fetch active orders matching hotel and date
     const orderWhere: any = { hotelId: auth.hotelId };
-    if (startDate) {
+    if (startDate && endDate) {
+      orderWhere.createdAt = { gte: startDate, lt: endDate };
+    } else if (startDate) {
       orderWhere.createdAt = { gte: startDate };
     }
     const currentOrders = await prisma.order.findMany({
@@ -45,7 +57,9 @@ export async function GET(request: NextRequest) {
 
     // 2. Fetch settled historical sales matching hotel and date
     const saleWhere: any = { hotelId: auth.hotelId };
-    if (startDate) {
+    if (startDate && endDate) {
+      saleWhere.orderDate = { gte: startDate, lt: endDate };
+    } else if (startDate) {
       saleWhere.orderDate = { gte: startDate };
     }
 
@@ -63,7 +77,14 @@ export async function GET(request: NextRequest) {
     } catch {
       // Direct SQLite query fallback
       try {
-        if (startDate) {
+        if (startDate && endDate) {
+          historicalSales = await prisma.$queryRawUnsafe(
+            `SELECT * FROM HistoricalSale WHERE hotelId = ? AND orderDate >= ? AND orderDate < ? ORDER BY orderDate DESC`,
+            auth.hotelId,
+            startDate.toISOString(),
+            endDate.toISOString()
+          );
+        } else if (startDate) {
           historicalSales = await prisma.$queryRawUnsafe(
             `SELECT * FROM HistoricalSale WHERE hotelId = ? AND orderDate >= ? ORDER BY orderDate DESC`,
             auth.hotelId,
@@ -135,11 +156,17 @@ export async function GET(request: NextRequest) {
     // Group sales into daily trend buckets
     const daysMap: Record<string, { date: string; sales: number; count: number }> = {};
 
-    for (let i = chartDays - 1; i >= 0; i--) {
-      const d = new Date();
-      d.setDate(d.getDate() - i);
-      const dateStr = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'Asia/Kathmandu' });
+    if (range === 'yesterday') {
+      const yesterdaySample = new Date(startOfToday.getTime() - 12 * 60 * 60 * 1000);
+      const dateStr = yesterdaySample.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'Asia/Kathmandu' });
       daysMap[dateStr] = { date: dateStr, sales: 0, count: 0 };
+    } else {
+      for (let i = chartDays - 1; i >= 0; i--) {
+        const d = new Date();
+        d.setDate(d.getDate() - i);
+        const dateStr = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'Asia/Kathmandu' });
+        daysMap[dateStr] = { date: dateStr, sales: 0, count: 0 };
+      }
     }
 
     // Populate active done orders into chart
@@ -166,7 +193,9 @@ export async function GET(request: NextRequest) {
 
     // Query expenses for the selected date range
     const expenseWhere: any = { hotelId: auth.hotelId };
-    if (startDate) {
+    if (startDate && endDate) {
+      expenseWhere.date = { gte: startDate, lt: endDate };
+    } else if (startDate) {
       expenseWhere.date = { gte: startDate };
     }
     const expenses = await prisma.expense.findMany({

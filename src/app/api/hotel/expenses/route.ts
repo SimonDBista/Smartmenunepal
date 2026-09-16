@@ -21,9 +21,14 @@ export async function GET(request: NextRequest) {
       whereClause.date = { gte: start, lte: end };
     } else {
       const now = new Date();
+      const nepalTodayStr = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kathmandu' }).format(now);
+      const startOfToday = new Date(`${nepalTodayStr}T00:00:00+05:45`);
+
       if (range === 'today') {
-        const start = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
-        whereClause.date = { gte: start };
+        whereClause.date = { gte: startOfToday };
+      } else if (range === 'yesterday') {
+        const startOfYesterday = new Date(startOfToday.getTime() - 24 * 60 * 60 * 1000);
+        whereClause.date = { gte: startOfYesterday, lt: startOfToday };
       } else if (range === '7days') {
         const start = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
         whereClause.date = { gte: start };

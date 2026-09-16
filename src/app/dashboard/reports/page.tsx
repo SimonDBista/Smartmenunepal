@@ -103,7 +103,7 @@ export default function HotelReportsPage() {
     isClosed?: boolean;
   } | null>(null);
 
-  const [selectedRange, setSelectedRange] = useState<'today' | '7days' | 'month' | 'all'>('today');
+  const [selectedRange, setSelectedRange] = useState<'today' | 'yesterday' | '7days' | 'month' | 'all'>('today');
   const [loading, setLoading] = useState(true);
 
   // Register editing inputs (Staff only types opening balance)
@@ -174,10 +174,20 @@ export default function HotelReportsPage() {
     }
   };
 
+  // Helper to get yesterday date string in Asia/Kathmandu
+  const getYesterdayNepalString = () => {
+    const now = new Date();
+    const nepalToday = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kathmandu' }).format(now);
+    const startOfToday = new Date(`${nepalToday}T00:00:00+05:45`);
+    const yesterday = new Date(startOfToday.getTime() - 24 * 60 * 60 * 1000);
+    return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kathmandu' }).format(yesterday);
+  };
+
   // Fetch Daily Register
-  const fetchRegister = async () => {
+  const fetchRegister = async (targetDate?: string) => {
     try {
-      const res = await fetch('/api/hotel/register');
+      const url = targetDate ? `/api/hotel/register?date=${targetDate}` : '/api/hotel/register';
+      const res = await fetch(url);
       if (res.ok) {
         const data = await res.json();
         setRegister(data);
@@ -200,7 +210,11 @@ export default function HotelReportsPage() {
 
   useEffect(() => {
     fetchReports(selectedRange);
-    fetchRegister();
+    if (selectedRange === 'yesterday') {
+      fetchRegister(getYesterdayNepalString());
+    } else {
+      fetchRegister();
+    }
   }, [selectedRange]);
 
   // Save Opening Balance (Staff only types opening balance)
@@ -208,11 +222,13 @@ export default function HotelReportsPage() {
     try {
       setIsSavingRegister(true);
       const parsedOpening = Math.max(parseFloat(openingInput) || 0, 0);
+      const targetDate = selectedRange === 'yesterday' ? (register?.date || getYesterdayNepalString()) : register?.date;
 
       const res = await fetch('/api/hotel/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          date: targetDate,
           openingBalance: parsedOpening,
           notes: registerNotes,
         }),
@@ -221,7 +237,11 @@ export default function HotelReportsPage() {
       if (res.ok) {
         setSaveSuccessMessage(true);
         setTimeout(() => setSaveSuccessMessage(false), 3500);
-        await fetchRegister();
+        if (selectedRange === 'yesterday') {
+          await fetchRegister(getYesterdayNepalString());
+        } else {
+          await fetchRegister();
+        }
         await fetchReports(selectedRange);
       }
     } catch (err) {
@@ -368,9 +388,10 @@ export default function HotelReportsPage() {
 
       {/* Time Period Filter Tabs */}
       <div className="flex items-center space-x-2 border-b border-white/[0.08] pb-4 print:hidden overflow-x-auto">
-        {(['today', '7days', 'month', 'all'] as const).map((range) => {
+        {(['today', 'yesterday', '7days', 'month', 'all'] as const).map((range) => {
           const labels = {
             today: "Today's Ledger",
+            yesterday: "Yesterday's Ledger",
             '7days': 'Last 7 Days',
             month: 'Last 30 Days',
             all: 'All Time Records',
@@ -507,7 +528,7 @@ export default function HotelReportsPage() {
 
           <div className="flex items-center space-x-2">
             <span className="text-xs font-mono font-bold text-stone-300 px-3 py-1 bg-stone-900 rounded-xl border border-white/5">
-              Date: {register?.date || 'Today'}
+              Date: {register?.date || (selectedRange === 'yesterday' ? getYesterdayNepalString() : 'Today')}
             </span>
           </div>
         </div>
@@ -724,7 +745,12 @@ export default function HotelReportsPage() {
               </span>
             </div>
             <p className="text-xs text-stone-400 mt-1">
-              Complete daily guest order records with table numbers, itemized food & drinks, discounts given, total settlements, and receipt slips.
+              {selectedRange === 'yesterday'
+                ? "Yesterday's complete guest order records"
+                : selectedRange === 'today'
+                ? "Today's complete guest order records"
+                : 'Complete guest order records for this time period'}{' '}
+              with table numbers, itemized food & drinks, discounts given, total settlements, and receipt slips.
             </p>
           </div>
 
@@ -1259,7 +1285,11 @@ export default function HotelReportsPage() {
         hotelName={hotelName}
         onOrderUpdated={() => {
           fetchReports(selectedRange);
-          fetchRegister();
+          if (selectedRange === 'yesterday') {
+            fetchRegister(getYesterdayNepalString());
+          } else {
+            fetchRegister();
+          }
         }}
       />
 
@@ -1268,9 +1298,15 @@ export default function HotelReportsPage() {
       {/* ============================================================ */}
       <div className="hidden print:block text-black p-4 space-y-6">
         <div className="text-center border-b-2 border-black pb-4">
-          <h1 className="text-2xl font-serif font-black uppercase">Daily Financial Settlement & Sales Report</h1>
+          <h1 className="text-2xl font-serif font-black uppercase">
+            {selectedRange === 'yesterday'
+              ? 'Yesterday Financial Settlement & Sales Report'
+              : 'Daily Financial Settlement & Sales Report'}
+          </h1>
           <p className="text-xs text-gray-600 mt-1">SmartMenu Nepal Multi-Tenant Restaurant Management</p>
-          <div className="text-xs font-mono font-bold mt-2">Date: {register?.date || formatDate(new Date())}</div>
+          <div className="text-xs font-mono font-bold mt-2">
+            Date: {register?.date || (selectedRange === 'yesterday' ? getYesterdayNepalString() : formatDate(new Date()))}
+          </div>
         </div>
 
         {/* Financial Totals */}

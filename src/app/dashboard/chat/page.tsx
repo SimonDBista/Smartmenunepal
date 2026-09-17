@@ -19,7 +19,7 @@ import {
 } from 'lucide-react';
 import { formatTime, formatDate } from '@/lib/utils';
 import { useSocket } from '@/lib/socket';
-import { playChime } from '@/lib/audio';
+import { playStaffMessageChime, playChime } from '@/lib/audio';
 
 interface TableChatSummary {
   id: string;
@@ -171,7 +171,7 @@ function HotelLiveChatContent() {
       // 2. Play audio alert if customer sent it
       if (msg.sender === 'customer') {
         try {
-          playChime();
+          playStaffMessageChime();
         } catch {}
       }
 

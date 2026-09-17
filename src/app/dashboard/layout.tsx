@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import { HotelData } from '@/lib/types';
 import OrderNotificationToast from '@/components/OrderNotificationToast';
+import ChatNotificationToast from '@/components/ChatNotificationToast';
 import { playOrderBell, unlockAudio } from '@/lib/audio';
 
 export default function DashboardLayout({
@@ -301,6 +302,9 @@ export default function DashboardLayout({
 
         {/* Floating Order Notification Toast & Bell Alert */}
         <OrderNotificationToast hotelId={hotel?.id} />
+
+        {/* Floating Customer Chat Message Notification Toast & Chime Alert */}
+        <ChatNotificationToast hotelId={hotel?.id} />
 
         {/* Page Main Content */}
         <main className="p-4 sm:p-6 lg:p-10 flex-1 max-w-7xl w-full mx-auto">{children}</main>

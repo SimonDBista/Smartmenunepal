@@ -88,10 +88,110 @@ export function playOrderBell() {
   }
 }
 
+/**
+ * Staff Dashboard Alert Chime (Customer -> Staff)
+ * Crisp, vibrant dual-tone notification chime ("Ding-Dong!")
+ * High alert resonance distinct from the mechanical order bell.
+ */
+export function playStaffMessageChime() {
+  try {
+    const ctx = getAudioContext();
+    if (!ctx) return;
+    if (ctx.state === 'suspended') {
+      ctx.resume().catch(() => {});
+    }
+
+    const now = ctx.currentTime;
+
+    const playStrike = (startTime: number, freq: number, duration: number, gainVal: number) => {
+      // Fundamental
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(freq, startTime);
+      gain.gain.setValueAtTime(gainVal, startTime);
+      gain.gain.exponentialRampToValueAtTime(0.0001, startTime + duration);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(startTime);
+      osc.stop(startTime + duration);
+
+      // Overtone shimmer
+      const overtone = ctx.createOscillator();
+      const otGain = ctx.createGain();
+      overtone.type = 'triangle';
+      overtone.frequency.setValueAtTime(freq * 2, startTime);
+      otGain.gain.setValueAtTime(gainVal * 0.35, startTime);
+      otGain.gain.exponentialRampToValueAtTime(0.0001, startTime + duration * 0.7);
+      overtone.connect(otGain);
+      otGain.connect(ctx.destination);
+      overtone.start(startTime);
+      overtone.stop(startTime + duration * 0.7);
+    };
+
+    // G5 (784Hz) followed quickly by C6 (1046.5Hz)
+    playStrike(now, 783.99, 0.45, 0.4);
+    playStrike(now + 0.13, 1046.5, 0.6, 0.5);
+  } catch (err) {
+    console.warn('Staff message chime failed:', err);
+  }
+}
+
+/**
+ * Customer Device Hospitality Chime (Staff -> Customer)
+ * Warm, gentle ascending 3-tone chime (D5 -> F#5 -> A5)
+ * Soft, elegant hotel concierge notification.
+ */
+export function playCustomerMessageChime() {
+  try {
+    const ctx = getAudioContext();
+    if (!ctx) return;
+    if (ctx.state === 'suspended') {
+      ctx.resume().catch(() => {});
+    }
+
+    const now = ctx.currentTime;
+    const notes = [
+      { freq: 587.33, delay: 0, decay: 0.5, gain: 0.28 },   // D5
+      { freq: 739.99, delay: 0.11, decay: 0.55, gain: 0.32 }, // F#5
+      { freq: 880.0, delay: 0.22, decay: 0.75, gain: 0.38 },  // A5
+    ];
+
+    notes.forEach(({ freq, delay, decay, gain: gainVal }) => {
+      const startTime = now + delay;
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(freq, startTime);
+      gain.gain.setValueAtTime(gainVal, startTime);
+      gain.gain.exponentialRampToValueAtTime(0.0001, startTime + decay);
+
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+
+      osc.start(startTime);
+      osc.stop(startTime + decay);
+    });
+  } catch (err) {
+    console.warn('Customer message chime failed:', err);
+  }
+}
+
 // Web Audio API chime player with zero external file dependencies
-export function playChime(type: 'order' | 'message' | 'success' = 'order') {
+export function playChime(
+  type: 'order' | 'staff_message' | 'customer_message' | 'message' | 'success' = 'order'
+) {
   if (type === 'order') {
     playOrderBell();
+    return;
+  }
+  if (type === 'staff_message') {
+    playStaffMessageChime();
+    return;
+  }
+  if (type === 'customer_message' || type === 'message') {
+    playCustomerMessageChime();
     return;
   }
 
@@ -102,21 +202,7 @@ export function playChime(type: 'order' | 'message' | 'success' = 'order') {
       ctx.resume().catch(() => {});
     }
 
-    if (type === 'message') {
-      // Soft pop notification for chat messages
-      const now = ctx.currentTime;
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.type = 'triangle';
-      osc.frequency.setValueAtTime(600, now);
-      osc.frequency.exponentialRampToValueAtTime(900, now + 0.12);
-      gain.gain.setValueAtTime(0.2, now);
-      gain.gain.exponentialRampToValueAtTime(0.01, now + 0.15);
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      osc.start(now);
-      osc.stop(now + 0.15);
-    } else if (type === 'success') {
+    if (type === 'success') {
       // Success melody
       const now = ctx.currentTime;
       const freqs = [523.25, 659.25, 783.99, 1046.5]; // C E G C
@@ -138,4 +224,5 @@ export function playChime(type: 'order' | 'message' | 'success' = 'order') {
     console.warn('Audio play notice:', err);
   }
 }
+
 

@@ -31,7 +31,7 @@ import { translations, Language } from '@/lib/i18n';
 import { formatNPR, getCategoryDetails, formatTime } from '@/lib/utils';
 import ThreeDViewerModal from '@/components/ThreeDViewerModal';
 import ImageZoomModal from '@/components/ImageZoomModal';
-import { playChime } from '@/lib/audio';
+import { playChime, playCustomerMessageChime } from '@/lib/audio';
 import { useSocket } from '@/lib/socket';
 
 export default function CustomerMenuPage() {
@@ -60,12 +60,22 @@ function CustomerMenuContent() {
 
   const [hotel, setHotel] = useState<HotelData | null>(null);
   const [items, setItems] = useState<MenuItemData[]>([]);
+  const [mostOrderedItems, setMostOrderedItems] = useState<MenuItemData[]>([]);
   const [categories, setCategories] = useState<string[]>([]);
   const [activeCategory, setActiveCategory] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [lang, setLang] = useState<Language>('en');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // Map of item id to popularity rank (1 = most ordered, 2 = 2nd, etc.)
+  const itemRankMap = React.useMemo(() => {
+    const map = new Map<string, number>();
+    mostOrderedItems.forEach((item, index) => {
+      map.set(item.id, index + 1);
+    });
+    return map;
+  }, [mostOrderedItems]);
 
   // Cart state
   const [cart, setCart] = useState<OrderItem[]>([]);
@@ -121,6 +131,11 @@ function CustomerMenuContent() {
   const [chatInput, setChatInput] = useState('');
   const [unreadChatCount, setUnreadChatCount] = useState(0);
   const [isSendingChat, setIsSendingChat] = useState(false);
+  const [incomingStaffMessage, setIncomingStaffMessage] = useState<{
+    id: string;
+    message: string;
+    createdAt: string | Date;
+  } | null>(null);
   const isSendingChatRef = useRef(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
 
@@ -165,10 +180,18 @@ function CustomerMenuContent() {
 
         if (msg.sender === 'staff') {
           try {
-            playChime();
+            playCustomerMessageChime();
           } catch {}
           if (!isChatOpen) {
             setUnreadChatCount((prev) => prev + 1);
+            setIncomingStaffMessage({
+              id: msg.id || String(Date.now()),
+              message: msg.message,
+              createdAt: msg.createdAt || new Date(),
+            });
+            setTimeout(() => {
+              setIncomingStaffMessage((prev) => (prev?.id === msg.id ? null : prev));
+            }, 8000);
           }
         }
       }
@@ -236,6 +259,7 @@ function CustomerMenuContent() {
         const data = await res.json();
         setHotel(data.hotel);
         setItems(data.items || []);
+        setMostOrderedItems(data.mostOrderedItems || []);
         setCategories(data.categories || []);
       } catch (err: any) {
         setError(err.message || 'Error loading menu');
@@ -453,15 +477,24 @@ function CustomerMenuContent() {
     }
   };
 
-  const filteredItems = items.filter((item) => {
-    const matchesCategory =
-      activeCategory === 'all' || item.category === activeCategory;
-    const matchesSearch =
-      item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (item.description &&
-        item.description.toLowerCase().includes(searchQuery.toLowerCase()));
-    return matchesCategory && matchesSearch;
-  });
+  const filteredItems = React.useMemo(() => {
+    let list = items;
+    if (activeCategory === 'most_ordered') {
+      list = [...mostOrderedItems];
+    } else if (activeCategory !== 'all') {
+      list = items.filter((item) => item.category === activeCategory);
+    }
+
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      list = list.filter(
+        (item) =>
+          item.name.toLowerCase().includes(q) ||
+          (item.description && item.description.toLowerCase().includes(q))
+      );
+    }
+    return list;
+  }, [items, mostOrderedItems, activeCategory, searchQuery]);
 
   if (loading) {
     return (
@@ -502,6 +535,58 @@ function CustomerMenuContent() {
         <div className="fixed top-5 left-1/2 -translate-x-1/2 z-50 px-5 py-2.5 bg-dark-900/95 border border-gold-500/40 text-gold-300 text-xs font-bold rounded-full shadow-gold-glow backdrop-blur-xl flex items-center space-x-2 animate-slide-up">
           <Sparkles className="w-4 h-4 text-gold-400" />
           <span>{toastMessage}</span>
+        </div>
+      )}
+
+      {/* Floating Incoming Staff Message Notification Toast */}
+      {incomingStaffMessage && !isChatOpen && (
+        <div className="fixed top-5 left-4 right-4 max-w-md mx-auto z-50 animate-slide-up">
+          <div className="bg-[#14151a]/95 border-2 border-gold-400/80 rounded-3xl p-4 shadow-2xl backdrop-blur-xl flex flex-col gap-2.5">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-2">
+                <div className="w-8 h-8 rounded-xl bg-gold-400/20 text-gold-400 border border-gold-400/40 flex items-center justify-center">
+                  <MessageCircle className="w-4 h-4 animate-bounce" />
+                </div>
+                <div>
+                  <span className="text-xs font-serif font-bold text-white block">
+                    {lang === 'en' ? 'Staff Desk • Reception Reply' : 'होटल कर्मचारीको सन्देश'}
+                  </span>
+                  <span className="text-[10px] text-gold-400 font-semibold">
+                    {formatTime(incomingStaffMessage.createdAt)}
+                  </span>
+                </div>
+              </div>
+              <button
+                onClick={() => setIncomingStaffMessage(null)}
+                className="text-stone-400 hover:text-white p-1 rounded-lg"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <p className="text-xs text-stone-200 bg-black/40 rounded-xl p-2.5 border border-white/5 line-clamp-2 leading-relaxed font-medium">
+              &ldquo;{incomingStaffMessage.message}&rdquo;
+            </p>
+
+            <div className="flex items-center justify-end space-x-2 pt-0.5">
+              <button
+                onClick={() => setIncomingStaffMessage(null)}
+                className="px-3 py-1.5 rounded-xl dark-btn text-xs font-semibold text-stone-400 hover:text-white"
+              >
+                {lang === 'en' ? 'Dismiss' : 'हटाउनुहोस्'}
+              </button>
+              <button
+                onClick={() => {
+                  setIncomingStaffMessage(null);
+                  setIsChatOpen(true);
+                }}
+                className="px-4 py-1.5 rounded-xl gold-btn text-xs font-bold text-black flex items-center space-x-1 shadow-gold-glow"
+              >
+                <span>{lang === 'en' ? 'Open Chat' : 'च्याट खोल्नुहोस्'}</span>
+                <ChevronRight className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
@@ -694,7 +779,199 @@ function CustomerMenuContent() {
           )}
         </div>
 
-        {/* Category Filter Pills (Horizontal Scroll) */}
+        {/* Most Ordered & Guest Favorites Spotlight Section */}
+        {activeCategory === 'all' && !searchQuery.trim() && mostOrderedItems.length > 0 && (
+          <section className="mb-8 animate-fade-in">
+            {/* Section Header */}
+            <div className="flex items-center justify-between mb-3.5">
+              <div className="flex items-center space-x-2.5">
+                <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-amber-500/20 to-orange-500/20 border border-amber-500/40 flex items-center justify-center text-amber-400 shadow-sm">
+                  <Flame className="w-4 h-4 animate-pulse text-amber-400" />
+                </div>
+                <div>
+                  <div className="flex items-center space-x-2">
+                    <h3 className="font-serif font-bold text-white text-sm sm:text-base tracking-wide flex items-center gap-1.5">
+                      <span>{t.guestFavorites}</span>
+                    </h3>
+                    <span className="px-2 py-0.5 rounded-full text-[9px] font-black bg-amber-500/20 text-amber-300 border border-amber-500/30 uppercase tracking-wider">
+                      Hot
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-400 mt-0.5 font-light">
+                    {t.guestFavoritesDesc}
+                  </p>
+                </div>
+              </div>
+
+              <button
+                onClick={() => setActiveCategory('most_ordered')}
+                className="text-xs font-bold text-gold-400 hover:text-gold-300 flex items-center space-x-1 transition px-2.5 py-1 rounded-lg hover:bg-white/[0.04]"
+              >
+                <span>{t.all} ({mostOrderedItems.length})</span>
+                <ChevronRight className="w-3.5 h-3.5" />
+              </button>
+            </div>
+
+            {/* Horizontal Scroll Cards */}
+            <div className="flex items-stretch space-x-4 overflow-x-auto pb-3 pt-1 scrollbar-none snap-x snap-mandatory">
+              {mostOrderedItems.slice(0, 6).map((item, idx) => {
+                const inCartItem = cart.find((i) => i.id === item.id);
+                const rank = idx + 1;
+                return (
+                  <div
+                    key={`spotlight-${item.id}`}
+                    className="snap-start shrink-0 w-[240px] sm:w-[260px] bg-dark-850/90 backdrop-blur-md border border-white/[0.08] hover:border-gold-500/40 rounded-3xl overflow-hidden shadow-premium-card flex flex-col justify-between group transition-all duration-300"
+                  >
+                    {/* Photo with badges */}
+                    <div
+                      onClick={() => {
+                        if (item.imageUrl && !failedImages[item.id]) {
+                          setZoomItem({
+                            isOpen: true,
+                            name: item.name,
+                            imageUrl: item.imageUrl,
+                            price: item.price,
+                            category: item.category,
+                            description: item.description,
+                            originalItem: item,
+                          });
+                        }
+                      }}
+                      className={`relative w-full h-36 bg-dark-900 overflow-hidden ${
+                        item.imageUrl && !failedImages[item.id] ? 'cursor-zoom-in group/photo' : ''
+                      }`}
+                    >
+                      {item.imageUrl && !failedImages[item.id] ? (
+                        <>
+                          <img
+                            src={item.imageUrl}
+                            alt={item.name}
+                            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700 ease-out"
+                            loading="lazy"
+                            onError={() => {
+                              setFailedImages((prev) => ({ ...prev, [item.id]: true }));
+                            }}
+                          />
+                          <div className="absolute inset-0 bg-gradient-to-t from-dark-850 via-transparent to-transparent opacity-80" />
+                        </>
+                      ) : (
+                        <div className="w-full h-full flex flex-col items-center justify-center text-slate-600 bg-dark-900">
+                          <Utensils className="w-8 h-8 mb-1 opacity-40" />
+                          <span className="text-[10px]">Freshly Prepared</span>
+                        </div>
+                      )}
+
+                      {/* Rank Badge */}
+                      <div className="absolute top-2.5 left-2.5 z-10">
+                        {rank === 1 ? (
+                          <span className="px-2.5 py-1 rounded-full text-[10px] font-black bg-gradient-to-r from-amber-400 via-yellow-400 to-amber-500 text-black border border-yellow-200 shadow-lg shadow-yellow-500/30 ring-1 ring-yellow-300 flex items-center space-x-1">
+                            <Flame className="w-3 h-3 text-red-600 fill-red-600 animate-pulse" />
+                            <span>#1 {t.bestseller}</span>
+                          </span>
+                        ) : rank === 2 ? (
+                          <span className="px-2.5 py-1 rounded-full text-[10px] font-black bg-gradient-to-r from-slate-200 to-slate-400 text-slate-950 border border-white shadow-lg flex items-center space-x-1">
+                            <span>🥈 #2 {t.popularBadge}</span>
+                          </span>
+                        ) : rank === 3 ? (
+                          <span className="px-2.5 py-1 rounded-full text-[10px] font-black bg-gradient-to-r from-amber-700 to-orange-700 text-amber-100 border border-amber-500/50 shadow-lg flex items-center space-x-1">
+                            <span>🥉 #3 {t.topPick}</span>
+                          </span>
+                        ) : (
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-black/80 text-amber-300 border border-amber-500/30 backdrop-blur flex items-center space-x-1">
+                            <Flame className="w-2.5 h-2.5 text-amber-400" />
+                            <span>#{rank}</span>
+                          </span>
+                        )}
+                      </div>
+
+                      {/* 3D button if enabled */}
+                      {item.is3dEnabled && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setThreeDItem({
+                              isOpen: true,
+                              name: item.name,
+                              modelUrl: item.modelUrl,
+                              imageUrl: item.imageUrl,
+                            });
+                          }}
+                          className="absolute top-2.5 right-2.5 px-2 py-0.5 rounded-full bg-gold-500/90 hover:bg-gold-500 text-black text-[9px] font-bold shadow-gold-glow backdrop-blur flex items-center space-x-1 transition z-10"
+                        >
+                          <Box className="w-2.5 h-2.5" />
+                          <span>3D</span>
+                        </button>
+                      )}
+
+                      {/* Social proof order count */}
+                      {item.totalOrdered && item.totalOrdered > 0 && (
+                        <div className="absolute bottom-2 left-2.5 px-2 py-0.5 rounded-md bg-black/80 backdrop-blur-md border border-white/10 text-[9px] font-bold text-amber-300 flex items-center space-x-1">
+                          <Flame className="w-2.5 h-2.5 text-amber-400" />
+                          <span>{item.totalOrdered} {t.ordersCount}</span>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Content */}
+                    <div className="p-4 flex flex-col justify-between flex-1">
+                      <div>
+                        <h4 className="font-serif font-bold text-white text-sm line-clamp-1 group-hover:text-gold-300 transition-colors">
+                          {item.name}
+                        </h4>
+                        {item.description && (
+                          <p className="text-[11px] text-slate-400 mt-1 line-clamp-2 leading-relaxed">
+                            {item.description}
+                          </p>
+                        )}
+                      </div>
+
+                      <div className="mt-3 pt-2.5 border-t border-white/[0.08] flex items-center justify-between">
+                        <span className="text-base font-serif font-black text-gold-400">
+                          {formatNPR(item.price, lang === 'ne')}
+                        </span>
+
+                        {item.isAvailable ? (
+                          inCartItem ? (
+                            <div className="flex items-center space-x-1.5 bg-dark-900 border border-gold-500/40 rounded-xl p-0.5 shadow-gold-glow">
+                              <button
+                                onClick={() => updateQuantity(item.id, -1)}
+                                className="w-6 h-6 rounded-lg bg-dark-800 text-gold-400 flex items-center justify-center hover:bg-gold-500 hover:text-black transition"
+                              >
+                                <Minus className="w-3 h-3" />
+                              </button>
+                              <span className="text-xs font-bold text-white px-1">
+                                {inCartItem.quantity}
+                              </span>
+                              <button
+                                onClick={() => updateQuantity(item.id, 1)}
+                                className="w-6 h-6 rounded-lg bg-gold-500 text-black flex items-center justify-center hover:bg-gold-400 transition"
+                              >
+                                <Plus className="w-3 h-3" />
+                              </button>
+                            </div>
+                          ) : (
+                            <button
+                              onClick={() => addToCart(item)}
+                              className="px-3 py-1.5 rounded-xl gold-btn text-[11px] font-bold flex items-center space-x-1 shadow-sm"
+                            >
+                              <Plus className="w-3 h-3" />
+                              <span>{t.orderNow}</span>
+                            </button>
+                          )
+                        ) : (
+                          <span className="text-[10px] text-red-400 bg-red-500/10 px-2 py-0.5 rounded-md border border-red-500/20">
+                            {t.outOfStock}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+        )}
+
         {/* Category Filter Pills (Horizontal Scroll) */}
         <div className="flex items-center space-x-2 overflow-x-auto pb-3 scrollbar-none mb-6">
           <button
@@ -709,6 +986,39 @@ function CustomerMenuContent() {
             <span>{t.all}</span>
             <span className="opacity-70 text-[10px]">({items.length})</span>
           </button>
+
+          {/* Quick Filter: Most Ordered / Bestseller */}
+          {mostOrderedItems.length > 0 && (
+            <button
+              onClick={() =>
+                setActiveCategory(activeCategory === 'most_ordered' ? 'all' : 'most_ordered')
+              }
+              className={`px-4 py-2 rounded-xl text-xs font-black whitespace-nowrap transition-all flex items-center space-x-1.5 shadow-sm ${
+                activeCategory === 'most_ordered'
+                  ? 'bg-gradient-to-r from-amber-500 via-orange-500 to-rose-500 text-white shadow-orange-500/30 border border-amber-300 ring-2 ring-amber-400/40'
+                  : 'dark-btn text-amber-400 hover:text-amber-300 hover:border-amber-500/40'
+              }`}
+            >
+              <Flame
+                className={`w-3.5 h-3.5 ${
+                  activeCategory === 'most_ordered'
+                    ? 'animate-bounce text-yellow-200'
+                    : 'text-amber-400'
+                }`}
+              />
+              <span>{t.mostOrdered}</span>
+              <span
+                className={`text-[10px] px-1.5 py-0.5 rounded-full font-bold ${
+                  activeCategory === 'most_ordered'
+                    ? 'bg-black/40 text-yellow-200'
+                    : 'bg-amber-500/20 text-amber-300'
+                }`}
+              >
+                {mostOrderedItems.length}
+              </span>
+            </button>
+          )}
+
           {categories.map((cat) => {
             const info = getCategoryDetails(cat, lang);
             const count = items.filter(
@@ -734,14 +1044,50 @@ function CustomerMenuContent() {
           })}
         </div>
 
+        {/* Most Ordered Active Banner */}
+        {activeCategory === 'most_ordered' && (
+          <div className="mb-6 p-4 rounded-2xl bg-gradient-to-r from-amber-500/10 via-orange-500/10 to-gold-500/10 border border-amber-500/30 flex items-center justify-between gap-3 text-xs shadow-lg animate-fade-in">
+            <div className="flex items-center space-x-3">
+              <div className="w-9 h-9 rounded-xl bg-amber-500/20 text-amber-300 flex items-center justify-center border border-amber-500/30 shrink-0">
+                <Flame className="w-5 h-5 animate-pulse text-amber-400" />
+              </div>
+              <div>
+                <div className="flex items-center space-x-2">
+                  <span className="font-serif font-black text-white text-sm">
+                    {t.guestFavorites}
+                  </span>
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                    {filteredItems.length} {t.ordersCount}
+                  </span>
+                </div>
+                <p className="text-stone-400 text-[11px] mt-0.5">
+                  {t.guestFavoritesDesc}
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={() => setActiveCategory('all')}
+              className="text-[11px] font-bold text-amber-400 hover:text-white px-3 py-1.5 rounded-xl bg-black/40 border border-white/10 hover:border-amber-400/40 whitespace-nowrap transition"
+            >
+              {t.all}
+            </button>
+          </div>
+        )}
+
         {/* Menu Cards Bento Grid */}
         {filteredItems.length === 0 ? (
           <div className="p-12 text-center bg-dark-850/50 border border-white/[0.06] rounded-3xl backdrop-blur">
             <div className="text-4xl mb-3">
-              {activeCategory !== 'all' ? getCategoryDetails(activeCategory, lang).icon : '🍽️'}
+              {activeCategory === 'most_ordered'
+                ? '🔥'
+                : activeCategory !== 'all'
+                ? getCategoryDetails(activeCategory, lang).icon
+                : '🍽️'}
             </div>
             <p className="text-sm font-bold text-slate-200">
-              {activeCategory !== 'all'
+              {activeCategory === 'most_ordered'
+                ? t.mostOrdered
+                : activeCategory !== 'all'
                 ? `No dishes in ${getCategoryDetails(activeCategory, lang).label} right now`
                 : 'No dishes found'}
             </p>
@@ -819,28 +1165,73 @@ function CustomerMenuContent() {
                     <div className="absolute inset-0 bg-gradient-to-t from-dark-850 via-transparent to-transparent opacity-80" />
 
                     {/* Category Glass Tag */}
-                    <div className="absolute top-3 left-3 px-2.5 py-1 rounded-lg bg-black/75 backdrop-blur-md border border-white/10 text-[10px] font-bold text-gold-400 flex items-center space-x-1">
+                    <div className="absolute top-3 left-3 px-2.5 py-1 rounded-lg bg-black/75 backdrop-blur-md border border-white/10 text-[10px] font-bold text-gold-400 flex items-center space-x-1 z-10">
                       <span>{getCategoryDetails(item.category, lang).icon}</span>
                       <span>{getCategoryDetails(item.category, lang).label}</span>
                     </div>
 
-                    {/* 3D Food Preview Badge */}
-                    {item.is3dEnabled && (
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setThreeDItem({
-                            isOpen: true,
-                            name: item.name,
-                            modelUrl: item.modelUrl,
-                            imageUrl: item.imageUrl,
-                          });
-                        }}
-                        className="absolute top-3 right-3 px-2.5 py-1 rounded-full bg-gold-500/90 hover:bg-gold-500 text-black text-[10px] font-bold shadow-gold-glow backdrop-blur flex items-center space-x-1 transition"
-                      >
-                        <Box className="w-3 h-3" />
-                        <span>{t.threeDPreview}</span>
-                      </button>
+                    {/* Top Right Badges: Rank Badge & 3D Food Preview */}
+                    <div className="absolute top-3 right-3 flex flex-col items-end gap-1.5 z-10">
+                      {(() => {
+                        const rank = itemRankMap.get(item.id);
+                        if (rank === 1) {
+                          return (
+                            <span className="px-2.5 py-1 rounded-full text-[10px] font-black bg-gradient-to-r from-amber-400 via-yellow-400 to-amber-500 text-black border border-yellow-200 shadow-lg shadow-yellow-500/30 ring-1 ring-yellow-300 flex items-center space-x-1">
+                              <Flame className="w-3 h-3 text-red-600 fill-red-600 animate-pulse" />
+                              <span>#1 {t.bestseller}</span>
+                            </span>
+                          );
+                        }
+                        if (rank === 2) {
+                          return (
+                            <span className="px-2.5 py-1 rounded-full text-[10px] font-black bg-gradient-to-r from-slate-200 to-slate-400 text-slate-950 border border-white shadow-lg flex items-center space-x-1">
+                              <span>🥈 #2 {t.popularBadge}</span>
+                            </span>
+                          );
+                        }
+                        if (rank === 3) {
+                          return (
+                            <span className="px-2.5 py-1 rounded-full text-[10px] font-black bg-gradient-to-r from-amber-700 to-orange-700 text-amber-100 border border-amber-500/50 shadow-lg flex items-center space-x-1">
+                              <span>🥉 #3 {t.topPick}</span>
+                            </span>
+                          );
+                        }
+                        if (rank && rank <= 5) {
+                          return (
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-black/80 text-amber-300 border border-amber-500/30 backdrop-blur flex items-center space-x-1">
+                              <Flame className="w-2.5 h-2.5 text-amber-400" />
+                              <span>#{rank}</span>
+                            </span>
+                          );
+                        }
+                        return null;
+                      })()}
+
+                      {item.is3dEnabled && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setThreeDItem({
+                              isOpen: true,
+                              name: item.name,
+                              modelUrl: item.modelUrl,
+                              imageUrl: item.imageUrl,
+                            });
+                          }}
+                          className="px-2.5 py-1 rounded-full bg-gold-500/90 hover:bg-gold-500 text-black text-[10px] font-bold shadow-gold-glow backdrop-blur flex items-center space-x-1 transition"
+                        >
+                          <Box className="w-3 h-3" />
+                          <span>{t.threeDPreview}</span>
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Social proof order tag if ordered */}
+                    {item.totalOrdered && item.totalOrdered > 0 && (
+                      <div className="absolute bottom-3 left-3 px-2 py-0.5 rounded-md bg-black/80 backdrop-blur-md border border-white/10 text-[9px] font-bold text-amber-300 flex items-center space-x-1 pointer-events-none z-10">
+                        <Flame className="w-2.5 h-2.5 text-amber-400" />
+                        <span>{item.totalOrdered} {t.ordersCount}</span>
+                      </div>
                     )}
                   </div>
 

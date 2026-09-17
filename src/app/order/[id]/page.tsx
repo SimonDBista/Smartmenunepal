@@ -28,7 +28,7 @@ import { OrderData, OrderItem, ChatMessageData } from '@/lib/types';
 import { translations, Language } from '@/lib/i18n';
 import { formatNPR, formatDate, formatTime } from '@/lib/utils';
 import { useSocket } from '@/lib/socket';
-import { playChime } from '@/lib/audio';
+import { playChime, playCustomerMessageChime } from '@/lib/audio';
 
 export default function OrderTrackingPage() {
   return (
@@ -59,6 +59,11 @@ function OrderTrackingContent() {
   const [isSending, setIsSending] = useState(false);
   const [showCancelModal, setShowCancelModal] = useState(false);
   const [isCancelling, setIsCancelling] = useState(false);
+  const [incomingStaffToast, setIncomingStaffToast] = useState<{
+    id: string;
+    message: string;
+    createdAt: string | Date;
+  } | null>(null);
 
   // Feedback state
   const [rating, setRating] = useState<number>(5);
@@ -141,7 +146,17 @@ function OrderTrackingContent() {
         return [...prev, msg];
       });
       if (msg.sender === 'staff') {
-        playChime('message');
+        try {
+          playCustomerMessageChime();
+        } catch {}
+        setIncomingStaffToast({
+          id: msg.id || String(Date.now()),
+          message: msg.message,
+          createdAt: msg.createdAt || new Date(),
+        });
+        setTimeout(() => {
+          setIncomingStaffToast((prev) => (prev?.id === msg.id ? null : prev));
+        }, 8000);
       }
     };
 
@@ -290,6 +305,58 @@ function OrderTrackingContent() {
           </span>
         </div>
       </header>
+
+      {/* Floating Incoming Staff Message Notification Toast */}
+      {incomingStaffToast && (
+        <div className="fixed top-16 left-4 right-4 max-w-md mx-auto z-50 animate-slide-up">
+          <div className="bg-[#14151a]/95 border-2 border-gold-400/80 rounded-2xl p-4 shadow-2xl backdrop-blur-xl flex flex-col gap-2">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-2">
+                <div className="w-8 h-8 rounded-xl bg-gold-400/20 text-gold-400 border border-gold-400/40 flex items-center justify-center">
+                  <MessageCircle className="w-4 h-4 animate-bounce" />
+                </div>
+                <div>
+                  <span className="text-xs font-serif font-bold text-white block">
+                    {lang === 'en' ? 'Staff Desk / Reception Reply' : 'होटल कर्मचारीको सन्देश'}
+                  </span>
+                  <span className="text-[10px] text-gold-400 font-semibold">
+                    {formatTime(incomingStaffToast.createdAt)}
+                  </span>
+                </div>
+              </div>
+              <button
+                onClick={() => setIncomingStaffToast(null)}
+                className="text-stone-400 hover:text-white p-1 rounded-lg text-sm font-bold"
+              >
+                ✕
+              </button>
+            </div>
+
+            <p className="text-xs text-stone-200 bg-black/40 rounded-xl p-2.5 border border-white/5 line-clamp-2 leading-relaxed font-medium">
+              &ldquo;{incomingStaffToast.message}&rdquo;
+            </p>
+
+            <div className="flex items-center justify-end space-x-2 pt-0.5">
+              <button
+                onClick={() => setIncomingStaffToast(null)}
+                className="px-3 py-1.5 rounded-xl dark-btn text-xs font-semibold text-stone-400 hover:text-white"
+              >
+                {lang === 'en' ? 'Dismiss' : 'हटाउनुहोस्'}
+              </button>
+              <button
+                onClick={() => {
+                  setIncomingStaffToast(null);
+                  messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+                  document.querySelector<HTMLInputElement>('input[placeholder*="message"]')?.focus();
+                }}
+                className="px-4 py-1.5 rounded-xl gold-btn text-xs font-bold text-black flex items-center space-x-1 shadow-gold-glow"
+              >
+                <span>{lang === 'en' ? 'View & Reply' : 'हेर्नुहोस् र जवाफ दिनुहोस्'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <main className="max-w-xl mx-auto px-4 pt-6 space-y-6">
         {/* Celebration Card (Matching PDF Page 9 when order is Done) */}

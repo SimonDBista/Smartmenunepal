@@ -114,12 +114,28 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json();
 
-    // Case 1: Bulk table generation (e.g. from 1 to N, or "T-01" to "T-10")
+    // Case 1: Bulk table generation (e.g. from 1 to N, or "T-01" to "T-10", or "room1" to "room10")
     if (body.bulk) {
       const count = Math.min(Math.max(parseInt(body.count || '5', 10), 1), 50);
       const start = Math.max(parseInt(body.start || '1', 10), 1);
-      const prefix = body.prefix !== undefined ? String(body.prefix).trim() : '';
       const sectionName = body.sectionName ? String(body.sectionName).trim() : null;
+      let prefix = body.prefix !== undefined ? String(body.prefix).trim() : '';
+
+      // If prefix is blank but Section is Room/Rooms, default prefix to 'room'
+      if (!prefix && sectionName) {
+        if (/room/i.test(sectionName)) {
+          prefix = 'room';
+        } else {
+          const lodgingTypes = ['cabana', 'cottage', 'villa', 'suite', 'vip'];
+          for (const t of lodgingTypes) {
+            if (sectionName.toLowerCase().includes(t)) {
+              prefix = t;
+              break;
+            }
+          }
+        }
+      }
+
       const capacity = body.capacity ? Math.max(parseInt(body.capacity, 10), 1) : 4;
 
       const createdList = [];
@@ -151,15 +167,36 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: true, count: createdList.length });
     }
 
-    // Case 2: Single table creation
+    // Case 2: Single table / QR creation
     const { tableNumber, name, capacity } = body;
     if (!tableNumber || !String(tableNumber).trim()) {
-      return NextResponse.json({ error: 'Table number or label is required' }, { status: 400 });
+      return NextResponse.json({ error: 'QR number or label is required' }, { status: 400 });
     }
 
-    const cleanNumber = String(tableNumber).trim();
+    const sectionName = name ? String(name).trim() : '';
+    let cleanNumber = String(tableNumber).trim();
+    cleanNumber = cleanNumber.replace(/^table\s*#?/i, '').trim();
+    cleanNumber = cleanNumber.replace(/^#+/, '').trim();
+    cleanNumber = cleanNumber.replace(/^room\s+(\d+)/i, (_, num) => `room${num}`);
 
-    // Check if table already exists
+    // If Section Name specifies Room / Rooms and cleanNumber does not already start with room
+    if (sectionName && /room/i.test(sectionName) && !cleanNumber.toLowerCase().startsWith('room')) {
+      cleanNumber = `room${cleanNumber}`;
+    } else if (sectionName) {
+      const lodgingTypes = ['cabana', 'cottage', 'villa', 'suite', 'vip'];
+      for (const t of lodgingTypes) {
+        if (sectionName.toLowerCase().includes(t) && !cleanNumber.toLowerCase().startsWith(t)) {
+          cleanNumber = `${t}${cleanNumber}`;
+          break;
+        }
+      }
+    }
+
+    if (!cleanNumber) {
+      return NextResponse.json({ error: 'Valid QR number or label is required' }, { status: 400 });
+    }
+
+    // Check if table / QR already exists in this hotel
     const existing = await prisma.restaurantTable.findUnique({
       where: {
         hotelId_tableNumber: {
@@ -170,8 +207,9 @@ export async function POST(request: NextRequest) {
     });
 
     if (existing) {
+      const sectionInfo = existing.name ? ` in "${existing.name}"` : '';
       return NextResponse.json(
-        { error: `Table "${cleanNumber}" already exists in your restaurant.` },
+        { error: `QR "#${cleanNumber}" already exists${sectionInfo}. Table numbers and Room numbers are kept distinct per section.` },
         { status: 409 }
       );
     }

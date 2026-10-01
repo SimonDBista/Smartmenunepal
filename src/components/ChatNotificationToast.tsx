@@ -151,7 +151,9 @@ export default function ChatNotificationToast({ hotelId }: { hotelId?: string })
 
             <div className="flex items-center space-x-1.5">
               <span className="px-3 py-1 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-500 text-white font-serif font-black text-xs shadow-md">
-                Table {alert.tableNumber || 'Desk'}
+                {alert.tableNumber?.toLowerCase().startsWith('room')
+                  ? `Rooms #${alert.tableNumber.replace(/^room\s*#?/i, '')}`
+                  : `Table #${alert.tableNumber?.replace(/^#/, '') || 'Desk'}`}
               </span>
               <button
                 onClick={() => dismissAlert(alert.id)}

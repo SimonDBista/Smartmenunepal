@@ -635,7 +635,11 @@ function CustomerMenuContent() {
               <span>{t.table}:</span>
               {initialTable ? (
                 <span className="text-gold-300 font-extrabold flex items-center space-x-1">
-                  <span>#{tableNumber}</span>
+                  <span>
+                    {tableNumber.toLowerCase().startsWith('room')
+                      ? `Rooms #${tableNumber.replace(/^room\s*#?/i, '')}`
+                      : `#${tableNumber.replace(/^#/, '')}`}
+                  </span>
                   <span className="text-[9px] text-emerald-400 bg-emerald-500/15 border border-emerald-500/30 px-1.5 py-0.5 rounded font-mono">
                     Verified QR
                   </span>

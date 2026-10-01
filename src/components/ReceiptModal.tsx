@@ -167,7 +167,9 @@ export default function ReceiptModal({
                   {isTableBill ? 'Table Billing Slip' : 'Order Receipt / KOT'}
                 </span>
                 <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-gold-500/20 text-gold-300 border border-gold-500/30">
-                  T-{order.tableNumber}
+                  {order.tableNumber.toLowerCase().includes('room')
+                    ? `Rooms #${order.tableNumber.replace(/^room\s*#?/i, '')}`
+                    : `#${order.tableNumber.replace(/^#/, '')}`}
                 </span>
               </div>
               <p className="text-[10px] text-stone-400">Review bill, apply discounts, or print thermal slip</p>
@@ -326,7 +328,9 @@ export default function ReceiptModal({
               {isTableBill ? 'FINAL TABLE BILL' : 'GUEST ORDER RECEIPT'}
             </p>
             <div className="mt-2 inline-block px-3 py-0.5 bg-stone-900 text-white rounded-md text-xs font-bold tracking-widest uppercase">
-              TABLE #{order.tableNumber}
+              {order.tableNumber.toLowerCase().includes('room')
+                ? `ROOMS #${order.tableNumber.replace(/^room\s*#?/i, '')}`
+                : `TABLE #${order.tableNumber}`}
             </div>
           </div>
 

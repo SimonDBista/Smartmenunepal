@@ -301,7 +301,9 @@ function OrderTrackingContent() {
         <div className="flex items-center space-x-2 px-3 py-1 rounded-full bg-dark-900 border border-gold-500/30">
           <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
           <span className="text-xs font-serif font-bold text-gold-300">
-            Table #{order.tableNumber}
+            {order.tableNumber?.toLowerCase().startsWith('room')
+              ? `Rooms #${order.tableNumber.replace(/^room\s*#?/i, '')}`
+              : `Table #${order.tableNumber}`}
           </span>
         </div>
       </header>
@@ -478,7 +480,7 @@ function OrderTrackingContent() {
               {tableOrders.length > 1 && (
                 <div className="mt-5 pt-4 border-t border-white/[0.06]">
                   <div className="text-[10px] uppercase font-bold text-slate-400 mb-2 tracking-wider flex items-center justify-between">
-                    <span>Table #{order.tableNumber} Dining Rounds ({tableOrders.length})</span>
+                    <span>{order.tableNumber?.toLowerCase().startsWith('room') ? `Rooms #${order.tableNumber.replace(/^room\s*#?/i, '')}` : `Table #${order.tableNumber}`} Dining Rounds ({tableOrders.length})</span>
                     <span className="text-[10px] text-gold-400 font-mono">Tap round to view</span>
                   </div>
                   <div className="flex items-center space-x-2 overflow-x-auto pb-1 scrollbar-none">

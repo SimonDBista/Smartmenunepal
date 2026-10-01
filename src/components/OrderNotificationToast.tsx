@@ -82,7 +82,10 @@ export default function OrderNotificationToast({ hotelId }: { hotelId?: string }
       if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
         try {
           const itemSummary = parsedItems.map((it) => `${it.quantity}x ${it.name}`).slice(0, 3).join(', ');
-          new Notification(`🛎️ New Order: Table #${order.tableNumber}`, {
+          const label = order.tableNumber.toLowerCase().startsWith('room')
+            ? `Rooms #${order.tableNumber.replace(/^room\s*#?/i, '')}`
+            : `Table #${order.tableNumber}`;
+          new Notification(`🛎️ New Order: ${label}`, {
             body: `${order.customerName || 'Guest'} (${itemSummary}) - NPR ${order.totalAmount}`,
             icon: '/favicon.ico',
           });
@@ -155,7 +158,9 @@ export default function OrderNotificationToast({ hotelId }: { hotelId?: string }
 
               <div className="flex items-center space-x-1.5">
                 <span className="px-3 py-1 rounded-xl bg-gold-500 text-black font-serif font-black text-xs shadow-gold-glow">
-                  Table {alert.tableNumber}
+                  {alert.tableNumber.toLowerCase().startsWith('room')
+                    ? `Rooms #${alert.tableNumber.replace(/^room\s*#?/i, '')}`
+                    : `Table #${alert.tableNumber.replace(/^#/, '')}`}
                 </span>
                 <button
                   onClick={() => dismissAlert(alert.id)}

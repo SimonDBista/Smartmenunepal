@@ -438,7 +438,7 @@ export default function ReceiptModal({
             <p className="font-bold text-stone-800 uppercase tracking-widest">
               Thank You For Dining With Us!
             </p>
-            <p className="text-[9px] mt-0.5 text-stone-500">Digital Bill Generated via SmartMenu Nepal</p>
+            <p className="text-[9px] mt-0.5 text-stone-500">Digital Bill Generated via digitalizemenu</p>
           </div>
 
         </div>

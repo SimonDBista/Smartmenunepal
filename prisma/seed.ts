@@ -4,7 +4,7 @@ import bcrypt from 'bcryptjs';
 const prisma = new PrismaClient();
 
 async function main() {
-  console.log('--- Starting SmartMenu Nepal Database Seed ---');
+  console.log('--- Starting digitalizemenu Database Seed ---');
 
   // 1. Create Platform Super Admin
   const adminPasswordHash = await bcrypt.hash('adminpassword123', 10);
@@ -12,12 +12,12 @@ async function main() {
     where: { email: 'admin@digitalizenepal.com' },
     update: {
       passwordHash: adminPasswordHash,
-      name: 'SmartMenu Nepal Super Admin',
+      name: 'digitalizemenu Super Admin',
     },
     create: {
       email: 'admin@digitalizenepal.com',
       passwordHash: adminPasswordHash,
-      name: 'SmartMenu Nepal Super Admin',
+      name: 'digitalizemenu Super Admin',
     },
   });
   console.log(`Created/Verified Admin: ${admin.email}`);

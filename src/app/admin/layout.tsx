@@ -83,7 +83,7 @@ export default function AdminLayout({
           <div>
             <div className="flex items-center space-x-2.5">
               <span className="font-serif font-extrabold text-sm text-white tracking-wide uppercase">
-                SmartMenu Nepal
+                digitalizemenu
               </span>
               <span className="px-2.5 py-0.5 rounded-full bg-gold-500/20 border border-gold-500/40 text-gold-300 text-[10px] font-extrabold">
                 Super Admin

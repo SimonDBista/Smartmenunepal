@@ -2,7 +2,7 @@ import type { Metadata, Viewport } from 'next';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'SmartMenu Nepal | Smart QR Menu & Hotel Management Platform',
+  title: 'digitalizemenu | Smart QR Menu & Hotel Management Platform',
   description: 'Multi-tenant QR menu, live table ordering, realtime receptionist chat, and restaurant management platform.',
   icons: {
     icon: '/favicon.ico',

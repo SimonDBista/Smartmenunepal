@@ -125,7 +125,7 @@ export default function HotelReportsPage() {
   const [orderSearchQuery, setOrderSearchQuery] = useState('');
   const [selectedReceiptOrder, setSelectedReceiptOrder] = useState<OrderData | null>(null);
   const [isReceiptModalOpen, setIsReceiptModalOpen] = useState(false);
-  const [hotelName, setHotelName] = useState('SmartMenu Restaurant');
+  const [hotelName, setHotelName] = useState('digitalizemenu Restaurant');
 
   const parseOrderItems = (rawItems: any): Array<{ name: string; quantity: number; price?: number }> => {
     if (!rawItems) return [];
@@ -1303,7 +1303,7 @@ export default function HotelReportsPage() {
               ? 'Yesterday Financial Settlement & Sales Report'
               : 'Daily Financial Settlement & Sales Report'}
           </h1>
-          <p className="text-xs text-gray-600 mt-1">SmartMenu Nepal Multi-Tenant Restaurant Management</p>
+          <p className="text-xs text-gray-600 mt-1">digitalizemenu Multi-Tenant Restaurant Management</p>
           <div className="text-xs font-mono font-bold mt-2">
             Date: {register?.date || (selectedRange === 'yesterday' ? getYesterdayNepalString() : formatDate(new Date()))}
           </div>

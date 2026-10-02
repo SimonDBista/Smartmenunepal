@@ -67,7 +67,7 @@ export default function AdminLoginPage() {
             PLATFORM SUPER ADMIN
           </span>
           <h1 className="text-2xl font-serif font-extrabold text-white mt-1">
-            SmartMenu Nepal
+            digitalizemenu
           </h1>
           <p className="text-xs text-slate-400 mt-1 font-normal">
             Platform administration and restaurant management

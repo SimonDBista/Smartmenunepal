@@ -39,6 +39,10 @@ $filesToSync = @(
     "docker-compose.yml",
     "Dockerfile",
     ".gitignore",
+    "src/app/page.tsx",
+    "src/app/layout.tsx",
+    "src/app/admin/layout.tsx",
+    "package.json",
     "deploy-vps.sh"
 )
 

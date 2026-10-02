@@ -2,7 +2,7 @@
 set -e
 
 echo "=========================================="
-echo "  Deploying SmartMenu Nepal Updates to VPS"
+echo "  Deploying digitalizemenu Updates to VPS"
 echo "=========================================="
 
 # Ensure uploads directory exists with correct permissions

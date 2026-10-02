@@ -32,7 +32,7 @@ export default function HomePage() {
           </div>
           <div>
             <span className="font-serif font-semibold text-stone-100 text-sm sm:text-base tracking-[0.16em] uppercase block leading-none">
-              SmartMenu Nepal
+              digitalizemenu
             </span>
             <span className="text-[9px] text-bronze-400 font-medium tracking-[0.25em] uppercase mt-1 block">
               Smart Restaurant Suite
@@ -347,7 +347,7 @@ export default function HomePage() {
 
       {/* Footer */}
       <footer className="bg-[#121316] border-t border-white/[0.08] py-8 text-center text-xs text-stone-500">
-        <p>© {new Date().getFullYear()} SmartMenu Nepal. All rights reserved.</p>
+        <p>© {new Date().getFullYear()} digitalizemenu. All rights reserved.</p>
       </footer>
     </div>
   );

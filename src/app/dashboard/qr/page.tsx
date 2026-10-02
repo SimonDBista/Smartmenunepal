@@ -997,7 +997,7 @@ export default function HotelQRGeneratorPage() {
                 Scan with your phone camera to view the menu, 3D dishes, and place your order.
               </p>
               <p className="text-[10px] font-bold text-gray-500 mt-3 uppercase tracking-wider">
-                SmartMenu Nepal
+                digitalizemenu
               </p>
             </div>
           </div>
@@ -1045,7 +1045,7 @@ export default function HotelQRGeneratorPage() {
                     Scan with phone camera to order directly.
                   </p>
                   <p className="text-[9px] font-bold text-gray-500 mt-1 uppercase tracking-wider">
-                    SmartMenu Nepal
+                    digitalizemenu
                   </p>
                 </div>
               </div>

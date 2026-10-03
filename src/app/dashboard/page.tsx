@@ -68,6 +68,32 @@ export default function HotelOrdersDashboard() {
 
   useEffect(() => {
     fetchOrders();
+
+    // Background live sync every 4s to guarantee incoming orders are always visible even if socket reconnects
+    const pollInterval = setInterval(() => {
+      fetch('/api/hotel/orders')
+        .then((res) => (res.ok ? res.json() : null))
+        .then((data) => {
+          if (data?.orders) {
+            setOrders((prev) => {
+              const prevMap = new Map(prev.map((o) => [o.id, o.status]));
+              let hasChanged = data.orders.length !== prev.length;
+              if (!hasChanged) {
+                for (const o of data.orders) {
+                  if (prevMap.get(o.id) !== o.status) {
+                    hasChanged = true;
+                    break;
+                  }
+                }
+              }
+              return hasChanged ? data.orders : prev;
+            });
+          }
+        })
+        .catch(() => {});
+    }, 4000);
+
+    return () => clearInterval(pollInterval);
   }, []);
 
   // Socket.io Realtime Listener
@@ -81,6 +107,10 @@ export default function HotelOrdersDashboard() {
         if (prev.some((o) => o.id === newOrder.id)) return prev;
         return [newOrder, ...prev];
       });
+      try {
+        playChime('order');
+      } catch {}
+      setIncomingAlert(`🛎️ New Order received from Table #${newOrder.tableNumber}!`);
     };
 
     const handleOrderUpdated = (data: { orderId: string; status: string; order?: OrderData }) => {
@@ -174,10 +204,11 @@ export default function HotelOrdersDashboard() {
     );
 
     for (const order of sorted) {
-      const key = order.tableNumber.trim().toUpperCase();
+      const cleanNum = order.tableNumber.replace(/^table\s*#?/i, '').replace(/^#+/, '').trim();
+      const key = cleanNum.toUpperCase() || order.tableNumber.trim().toUpperCase();
       if (!map.has(key)) {
         map.set(key, {
-          tableNumber: order.tableNumber,
+          tableNumber: cleanNum || order.tableNumber,
           customerName: order.customerName || undefined,
           customerPhone: order.customerPhone || undefined,
           orders: [],

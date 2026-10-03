@@ -2,16 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import QRCode from 'qrcode';
 import prisma from '@/lib/prisma';
 import { getHotelAuth } from '@/lib/auth';
-
-function getBaseUrl(request: NextRequest): string {
-  let baseUrl = process.env.NEXT_PUBLIC_APP_URL?.trim();
-  if (!baseUrl) {
-    const host = request.headers.get('x-forwarded-host') || request.headers.get('host') || 'localhost:3000';
-    const proto = request.headers.get('x-forwarded-proto') || (host.includes('localhost') ? 'http' : 'https');
-    baseUrl = `${proto}://${host}`;
-  }
-  return baseUrl;
-}
+import { getAppBaseUrl } from '@/lib/utils';
 
 export async function GET(request: NextRequest) {
   try {
@@ -65,12 +56,12 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    const baseUrl = getBaseUrl(request);
+    const baseUrl = getAppBaseUrl(request);
 
     // Generate individual QR codes for each table in parallel
     const tablesWithQRs = await Promise.all(
       tables.map(async (table) => {
-        const targetUrl = `${baseUrl}/menu/${hotel.slug}?table=${encodeURIComponent(table.tableNumber)}`;
+        const targetUrl = `${baseUrl}/menu/${hotel.slug}?table=${encodeURIComponent(table.tableNumber)}&qr=1`;
         const qrDataUrl = await QRCode.toDataURL(targetUrl, {
           width: 500,
           margin: 2,

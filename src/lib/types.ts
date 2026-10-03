@@ -92,3 +92,19 @@ export interface AdminData {
   name?: string | null;
   createdAt: string | Date;
 }
+
+export interface IngredientData {
+  id: string;
+  hotelId: string;
+  name: string;
+  category: string;
+  currentStock: number;
+  unit: string;
+  minAlertStock: number;
+  costPerUnit?: number | null;
+  supplier?: string | null;
+  lastRestockedAt?: string | Date | null;
+  notes?: string | null;
+  createdAt: string | Date;
+  updatedAt: string | Date;
+}

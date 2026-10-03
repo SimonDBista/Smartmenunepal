@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import QRCode from 'qrcode';
 import prisma from '@/lib/prisma';
 import { getAdminAuth } from '@/lib/auth';
+import { getAppBaseUrl } from '@/lib/utils';
 
 export async function GET(
   request: NextRequest,
@@ -23,8 +24,8 @@ export async function GET(
       return NextResponse.json({ error: 'Hotel not found' }, { status: 404 });
     }
 
-    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
-    const targetUrl = `${baseUrl}/menu/${hotel.slug}`;
+    const baseUrl = getAppBaseUrl(request);
+    const targetUrl = `${baseUrl}/menu/${hotel.slug}?qr=1`;
 
     const qrDataUrl = await QRCode.toDataURL(targetUrl, {
       width: 600,

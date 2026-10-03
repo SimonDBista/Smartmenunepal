@@ -103,6 +103,10 @@ export async function POST(request: NextRequest) {
 
     // Remove from active Order table (kitchen and active table feed)
     const orderIdsToDelete = ordersToClear.map((o) => o.id);
+    const distinctTableNumbers = Array.from(
+      new Set(ordersToClear.map((o) => o.tableNumber.trim()).filter(Boolean))
+    );
+
     const deleteResult = await prisma.order.deleteMany({
       where: {
         id: { in: orderIdsToDelete },
@@ -110,15 +114,63 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    // Realtime notification via Socket.io
+    // Mark tables as settled in RestaurantTable and generate fresh session token
+    const settledAt = new Date();
+    for (const tbl of distinctTableNumbers) {
+      const newSessionToken =
+        'sess_' + Date.now() + '_' + Math.random().toString(36).substring(2, 9);
+      try {
+        await prisma.restaurantTable.updateMany({
+          where: {
+            hotelId: auth.hotelId,
+            tableNumber: tbl,
+          },
+          data: {
+            lastSettledAt: settledAt,
+            sessionToken: newSessionToken,
+          },
+        });
+      } catch (tblErr) {
+        console.warn('Failed to update table lastSettledAt:', tblErr);
+      }
+    }
+
+    // Realtime notification via Socket.io to Hotel, Tables, and Individual Orders
     try {
       const io = (global as any).io;
       if (io) {
+        // Notify Hotel Live Feed
         io.to(`hotel_${auth.hotelId}`).emit('orders_cleared', {
           tableNumber,
           allCompleted: !!allCompleted,
           clearedOrderIds: orderIdsToDelete,
+          clearedTables: distinctTableNumbers,
+          settledAt: settledAt.toISOString(),
         });
+
+        // Notify each customer table room that session has officially ended
+        for (const tbl of distinctTableNumbers) {
+          io.to(`table_${auth.hotelId}_${tbl}`).emit('table_session_ended', {
+            tableNumber: tbl,
+            hotelId: auth.hotelId,
+            settledAt: settledAt.toISOString(),
+          });
+          io.to(`table_${tbl}`).emit('table_session_ended', {
+            tableNumber: tbl,
+            hotelId: auth.hotelId,
+            settledAt: settledAt.toISOString(),
+          });
+        }
+
+        // Notify customer on each order tracking screen
+        for (const ord of ordersToClear) {
+          io.to(`order_${ord.id}`).emit('order_settled_and_cleared', {
+            orderId: ord.id,
+            tableNumber: ord.tableNumber,
+            hotelId: auth.hotelId,
+            settledAt: settledAt.toISOString(),
+          });
+        }
       }
     } catch (socketErr) {
       console.warn('Socket clear emit error:', socketErr);
@@ -129,6 +181,8 @@ export async function POST(request: NextRequest) {
       message: `Successfully cleared ${deleteResult.count} order(s). ${archivedCount} recorded in sales ledger.`,
       clearedCount: deleteResult.count,
       archivedCount,
+      clearedTables: distinctTableNumbers,
+      settledAt: settledAt.toISOString(),
     });
   } catch (error: any) {
     console.error('Clear orders error:', error);

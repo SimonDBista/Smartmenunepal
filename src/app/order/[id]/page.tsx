@@ -22,6 +22,7 @@ import {
   XCircle,
   PlusCircle,
   RotateCcw,
+  QrCode,
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { OrderData, OrderItem, ChatMessageData } from '@/lib/types';
@@ -29,6 +30,7 @@ import { translations, Language } from '@/lib/i18n';
 import { formatNPR, formatDate, formatTime } from '@/lib/utils';
 import { useSocket } from '@/lib/socket';
 import { playChime, playCustomerMessageChime } from '@/lib/audio';
+import TableQRScannerModal from '@/components/TableQRScannerModal';
 
 export default function OrderTrackingPage() {
   return (
@@ -59,6 +61,8 @@ function OrderTrackingContent() {
   const [isSending, setIsSending] = useState(false);
   const [showCancelModal, setShowCancelModal] = useState(false);
   const [isCancelling, setIsCancelling] = useState(false);
+  const [isTableSettled, setIsTableSettled] = useState(false);
+  const [isQRScannerOpen, setIsQRScannerOpen] = useState(false);
   const [incomingStaffToast, setIncomingStaffToast] = useState<{
     id: string;
     message: string;
@@ -84,6 +88,19 @@ function OrderTrackingContent() {
         if (!res.ok) throw new Error('Order not found');
         const data = await res.json();
         setOrder(data.order);
+        if (data.isSettled || data.sessionEnded) {
+          setIsTableSettled(true);
+          // Invalidate stored session in client storage
+          if (data.order?.hotel?.slug) {
+            try {
+              localStorage.removeItem(`last_order_${data.order.hotel.slug}`);
+              localStorage.removeItem(`last_table_${data.order.hotel.slug}`);
+              localStorage.removeItem(
+                `session_token_${data.order.hotel.slug}_${data.order.tableNumber}`
+              );
+            } catch {}
+          }
+        }
         if (data.order.chatMessages) {
           setMessages(data.order.chatMessages);
         }
@@ -123,6 +140,12 @@ function OrderTrackingContent() {
     if (!socket || !orderId) return;
 
     socket.emit('join_order', orderId);
+    if (order?.hotelId && order?.tableNumber) {
+      socket.emit('join_table', {
+        hotelId: order.hotelId,
+        tableNumber: order.tableNumber,
+      });
+    }
 
     const handleStatusUpdate = (data: { status: string; order?: any }) => {
       setOrder((prev) => {
@@ -137,6 +160,36 @@ function OrderTrackingContent() {
           spread: 80,
           origin: { y: 0.6 },
         });
+      }
+    };
+
+    const handleOrderSettled = (data: any) => {
+      setIsTableSettled(true);
+      setOrder((prev) => (prev ? { ...prev, status: 'done' as any } : prev));
+      if (order?.hotel?.slug) {
+        try {
+          localStorage.removeItem(`last_order_${order.hotel.slug}`);
+          localStorage.removeItem(`last_table_${order.hotel.slug}`);
+          localStorage.removeItem(
+            `session_token_${order.hotel.slug}_${order.tableNumber}`
+          );
+        } catch {}
+      }
+      playChime('success');
+    };
+
+    const handleTableSessionEnded = (data: any) => {
+      if (!order?.tableNumber || String(data.tableNumber).trim() === String(order.tableNumber).trim()) {
+        setIsTableSettled(true);
+        if (order?.hotel?.slug) {
+          try {
+            localStorage.removeItem(`last_order_${order.hotel.slug}`);
+            localStorage.removeItem(`last_table_${order.hotel.slug}`);
+            localStorage.removeItem(
+              `session_token_${order.hotel.slug}_${order.tableNumber}`
+            );
+          } catch {}
+        }
       }
     };
 
@@ -161,13 +214,17 @@ function OrderTrackingContent() {
     };
 
     socket.on('order_status_updated', handleStatusUpdate);
+    socket.on('order_settled_and_cleared', handleOrderSettled);
+    socket.on('table_session_ended', handleTableSessionEnded);
     socket.on('chat_message', handleNewMessage);
 
     return () => {
       socket.off('order_status_updated', handleStatusUpdate);
+      socket.off('order_settled_and_cleared', handleOrderSettled);
+      socket.off('table_session_ended', handleTableSessionEnded);
       socket.off('chat_message', handleNewMessage);
     };
-  }, [socket, orderId]);
+  }, [socket, orderId, order?.hotelId, order?.tableNumber, order?.hotel?.slug]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -517,40 +574,73 @@ function OrderTrackingContent() {
                 </div>
               )}
 
-              {/* Customer Actions: Edit / Cancel / Add More Dishes */}
+              {/* Customer Actions: Edit / Cancel / Add More Dishes / Rescan when settled */}
               <div className="mt-5 pt-4 border-t border-white/[0.08] flex flex-wrap items-center gap-2.5">
-                {isReceived && (
-                  <>
-                    <Link
-                      href={`/menu/${order.hotel?.slug || ''}?table=${encodeURIComponent(
-                        order.tableNumber
-                      )}&editOrder=${order.id}`}
-                      className="flex-1 py-2.5 rounded-xl bg-amber-500/20 border border-amber-500/40 hover:bg-amber-500/30 text-amber-300 text-xs font-bold flex items-center justify-center space-x-1.5 transition shadow-sm"
-                    >
-                      <Edit3 className="w-3.5 h-3.5" />
-                      <span>Edit Dishes</span>
-                    </Link>
-
+                {isTableSettled ? (
+                  <div className="w-full p-4 rounded-2xl bg-gradient-to-r from-emerald-500/10 via-dark-900 to-gold-500/10 border border-emerald-500/30 text-center space-y-3 shadow-lg animate-fade-in">
+                    <div className="flex items-center justify-center space-x-2 text-emerald-400 font-bold text-xs uppercase tracking-wider">
+                      <CheckCircle2 className="w-4 h-4" />
+                      <span>Table Bill Settled & Session Ended</span>
+                    </div>
+                    <p className="text-xs text-slate-300 leading-relaxed max-w-sm mx-auto">
+                      Staff has settled and cleared Table #{order.tableNumber}. Thank you for dining with us! This session has closed. To place another order, please scan your table QR code again.
+                    </p>
                     <button
-                      onClick={() => setShowCancelModal(true)}
-                      className="px-4 py-2.5 rounded-xl bg-red-500/10 border border-red-500/20 hover:bg-red-500/20 text-red-400 text-xs font-semibold flex items-center space-x-1.5 transition"
+                      onClick={() => setIsQRScannerOpen(true)}
+                      className="w-full py-2.5 rounded-xl gold-btn text-black text-xs font-black flex items-center justify-center space-x-2 shadow-gold-glow hover:scale-[1.01] transition"
                     >
-                      <XCircle className="w-3.5 h-3.5" />
-                      <span>Cancel</span>
+                      <QrCode className="w-4 h-4" />
+                      <span>Scan Table QR to Order Again</span>
                     </button>
-                  </>
-                )}
+                  </div>
+                ) : (
+                  <>
+                    {isReceived && (
+                      <>
+                        <Link
+                          href={`/menu/${order.hotel?.slug || ''}?table=${encodeURIComponent(
+                            order.tableNumber
+                          )}&editOrder=${order.id}`}
+                          className="flex-1 py-2.5 rounded-xl bg-amber-500/20 border border-amber-500/40 hover:bg-amber-500/30 text-amber-300 text-xs font-bold flex items-center justify-center space-x-1.5 transition shadow-sm"
+                        >
+                          <Edit3 className="w-3.5 h-3.5" />
+                          <span>Edit Dishes</span>
+                        </Link>
 
-                {!isCancelled && (
-                  <Link
-                    href={`/menu/${order.hotel?.slug || ''}?table=${encodeURIComponent(
-                      order.tableNumber
-                    )}`}
-                    className="flex-1 py-2.5 rounded-xl gold-btn text-black text-xs font-extrabold flex items-center justify-center space-x-1.5 shadow-gold-glow hover:scale-[1.02] transition"
-                  >
-                    <PlusCircle className="w-4 h-4" />
-                    <span>Add Extra Dishes (Round 2+)</span>
-                  </Link>
+                        <button
+                          onClick={() => setShowCancelModal(true)}
+                          className="px-4 py-2.5 rounded-xl bg-red-500/10 border border-red-500/20 hover:bg-red-500/20 text-red-400 text-xs font-semibold flex items-center space-x-1.5 transition"
+                        >
+                          <XCircle className="w-3.5 h-3.5" />
+                          <span>Cancel</span>
+                        </button>
+                      </>
+                    )}
+
+                    {!isCancelled && !isDone && (
+                      <Link
+                        href={`/menu/${order.hotel?.slug || ''}?table=${encodeURIComponent(
+                          order.tableNumber
+                        )}&qr=1`}
+                        className="flex-1 py-2.5 rounded-xl gold-btn text-black text-xs font-extrabold flex items-center justify-center space-x-1.5 shadow-gold-glow hover:scale-[1.02] transition"
+                      >
+                        <PlusCircle className="w-4 h-4" />
+                        <span>Add Extra Dishes (Round 2+)</span>
+                      </Link>
+                    )}
+
+                    {!isCancelled && isDone && (
+                      <Link
+                        href={`/menu/${order.hotel?.slug || ''}?table=${encodeURIComponent(
+                          order.tableNumber
+                        )}&qr=1`}
+                        className="flex-1 py-2.5 rounded-xl dark-btn text-gold-400 text-xs font-extrabold flex items-center justify-center space-x-1.5 hover:border-gold-500/40 transition"
+                      >
+                        <PlusCircle className="w-4 h-4" />
+                        <span>Add Extra Dishes (Next Round)</span>
+                      </Link>
+                    )}
+                  </>
                 )}
               </div>
             </div>
@@ -777,6 +867,14 @@ function OrderTrackingContent() {
           </div>
         </div>
       )}
+
+      {/* Table QR Scanner Modal */}
+      <TableQRScannerModal
+        isOpen={isQRScannerOpen}
+        onClose={() => setIsQRScannerOpen(false)}
+        hotelSlug={order?.hotel?.slug}
+        expectedTableNumber={order?.tableNumber}
+      />
     </div>
   );
 }

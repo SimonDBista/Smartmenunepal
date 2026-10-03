@@ -39,6 +39,7 @@ model Hotel {
   tables          RestaurantTable[]
   dailyRegisters  DailyRegister[]
   expenses        Expense[]
+  ingredients     Ingredient[]
 }
 
 model MenuItem {
@@ -140,9 +141,11 @@ model RestaurantTable {
   tableNumber String   // e.g., "1", "2", "T-05", "Rooftop-1"
   name        String?  // e.g., "Terrace Booth", "Indoor Hall"
   capacity    Int?     @default(4)
-  isActive    Boolean  @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  isActive      Boolean   @default(true)
+  lastSettledAt DateTime?
+  sessionToken  String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
 
   @@unique([hotelId, tableNumber])
   @@index([hotelId])
@@ -182,5 +185,25 @@ model Expense {
   @@index([hotelId])
   @@index([hotelId, category])
   @@index([date])
+}
+
+model Ingredient {
+  id              String    @id @default(cuid())
+  hotelId         String
+  hotel           Hotel     @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  name            String
+  category        String    @default("General") // "Meat & Poultry", "Vegetables & Produce", "Dairy & Eggs", "Grains & Spices", "Oils & Sauces", "Beverages", "Packaging"
+  currentStock    Float     @default(0)
+  unit            String    @default("kg")      // "kg", "g", "ltr", "ml", "pcs", "packets", "cans", "boxes"
+  minAlertStock   Float     @default(5)         // Low stock alert threshold
+  costPerUnit     Float?                        // Optional purchase price per unit
+  supplier        String?                       // Vendor or supplier
+  lastRestockedAt DateTime?
+  notes           String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([hotelId])
+  @@index([hotelId, category])
 }
 

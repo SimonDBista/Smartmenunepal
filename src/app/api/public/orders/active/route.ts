@@ -27,15 +27,34 @@ export async function GET(request: NextRequest) {
       targetHotelId = hotel.id;
     }
 
-    // Look for active orders in the last 12 hours
+    const cleanTable = tableNumber.replace(/^table\s*#?/i, '').replace(/^#+/, '').trim();
+    const tableCandidates = Array.from(new Set([tableNumber, cleanTable, `Table ${cleanTable}`, `#${cleanTable}`].filter(Boolean)));
+
+    // Fetch table settlement information
+    const table = await prisma.restaurantTable.findFirst({
+      where: {
+        hotelId: targetHotelId!,
+        tableNumber: { in: tableCandidates },
+      },
+      select: {
+        lastSettledAt: true,
+        sessionToken: true,
+      },
+    });
+
+    // Look for active orders in the last 12 hours (and after last settlement if settled)
     const twelveHoursAgo = new Date(Date.now() - 12 * 60 * 60 * 1000);
+    const minCreatedAt =
+      table?.lastSettledAt && new Date(table.lastSettledAt) > twelveHoursAgo
+        ? new Date(new Date(table.lastSettledAt).getTime() - 2000)
+        : twelveHoursAgo;
 
     const activeOrders = await prisma.order.findMany({
       where: {
         hotelId: targetHotelId!,
-        tableNumber,
-        status: { in: ['received', 'in_progress'] },
-        createdAt: { gte: twelveHoursAgo },
+        tableNumber: { in: tableCandidates },
+        status: { in: ['received', 'in_progress', 'done'] },
+        createdAt: { gte: minCreatedAt },
       },
       include: {
         _count: {
@@ -50,6 +69,7 @@ export async function GET(request: NextRequest) {
         hasActiveOrder: false,
         activeOrders: [],
         count: 0,
+        lastSettledAt: table?.lastSettledAt || null,
       });
     }
 
@@ -60,6 +80,7 @@ export async function GET(request: NextRequest) {
       count: activeOrders.length,
       latestOrderId: latestOrder.id,
       activeOrders,
+      lastSettledAt: table?.lastSettledAt || null,
     });
   } catch (error) {
     console.error('Check active order error:', error);

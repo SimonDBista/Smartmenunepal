@@ -22,11 +22,36 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Hotel not found' }, { status: 404 });
     }
 
-    if (hotel.status === 'expired') {
-      return NextResponse.json(
-        { error: 'This restaurant menu is currently inactive. Please contact staff.' },
-        { status: 403 }
-      );
+    // Verify table session validity (prevent ordering from ended/settled sessions)
+    const table = await prisma.restaurantTable.findFirst({
+      where: {
+        hotelId,
+        tableNumber: String(tableNumber).trim(),
+      },
+      select: {
+        id: true,
+        lastSettledAt: true,
+        sessionToken: true,
+      },
+    });
+
+    if (table?.lastSettledAt) {
+      const settledTime = new Date(table.lastSettledAt).getTime();
+      const sessionTime = body.sessionCreatedAt ? new Date(body.sessionCreatedAt).getTime() : 0;
+      const isFreshScan = !!body.isFreshScan;
+
+      // Only reject if client explicitly submitted a stale session timestamp created strictly before the bill was settled
+      if (!isFreshScan && sessionTime > 0 && sessionTime < settledTime) {
+        return NextResponse.json(
+          {
+            error:
+              'This table session has ended because the bill was settled. Please scan the QR code on your table to place a new order.',
+            sessionEnded: true,
+            lastSettledAt: table.lastSettledAt,
+          },
+          { status: 403 }
+        );
+      }
     }
 
     // Extract item IDs and verify against database prices to prevent price manipulation
@@ -87,6 +112,8 @@ export async function POST(request: NextRequest) {
       const io = (global as any).io;
       if (io) {
         io.to(`hotel_${hotelId}`).emit('new_order', order);
+        io.to(`table_${hotelId}_${order.tableNumber}`).emit('new_order', order);
+        io.to(`table_${order.tableNumber}`).emit('new_order', order);
       }
     } catch (socketErr) {
       console.warn('Socket emit error:', socketErr);

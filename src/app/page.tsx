@@ -62,7 +62,7 @@ export default function HomePage() {
             Staff Login
           </Link>
           <Link
-            href="/menu/sitan-dabaka-sekuwa?table=1"
+            href="/menu/sitan-dabaka-sekuwa?table=1&qr=1"
             className="px-4 py-2 rounded-xl bronze-btn text-xs font-semibold tracking-wider uppercase text-white shadow-sm flex items-center space-x-1.5"
           >
             <Smartphone className="w-3.5 h-3.5" />
@@ -120,7 +120,7 @@ export default function HomePage() {
             {/* Call to action buttons */}
             <div className="mt-10 flex flex-wrap items-center justify-start gap-4">
               <Link
-                href="/menu/sitan-dabaka-sekuwa?table=1"
+                href="/menu/sitan-dabaka-sekuwa?table=1&qr=1"
                 className="explore-menu-pill px-8 py-3.5 rounded-full text-xs font-bold tracking-[0.16em] uppercase text-charcoal-900 flex items-center space-x-2.5 shadow-md group"
               >
                 <Smartphone className="w-4 h-4 text-charcoal-900" />
@@ -235,7 +235,7 @@ export default function HomePage() {
 
               <div className="pt-2">
                 <Link
-                  href="/menu/sitan-dabaka-sekuwa?table=1"
+                  href="/menu/sitan-dabaka-sekuwa?table=1&qr=1"
                   className="px-6 py-3 rounded-xl bronze-btn text-xs font-semibold tracking-wider uppercase text-white inline-flex items-center space-x-2"
                 >
                   <span>Experience Customer Menu Demo</span>

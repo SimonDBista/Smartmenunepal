@@ -29,10 +29,68 @@ export async function GET(
     });
 
     if (!order) {
+      // Check if order was already settled and archived into HistoricalSale
+      const historical = await prisma.historicalSale.findFirst({
+        where: { orderId },
+      });
+
+      if (historical) {
+        const hotel = await prisma.hotel.findUnique({
+          where: { id: historical.hotelId },
+          select: {
+            id: true,
+            name: true,
+            slug: true,
+            phone: true,
+            address: true,
+            coverImage: true,
+          },
+        });
+
+        return NextResponse.json({
+          order: {
+            id: historical.orderId || historical.id,
+            hotelId: historical.hotelId,
+            tableNumber: historical.tableNumber,
+            customerName: historical.customerName,
+            customerPhone: historical.customerPhone,
+            items: historical.items,
+            totalAmount: historical.totalAmount,
+            discountAmount: historical.discountAmount,
+            status: 'done',
+            notes: historical.notes,
+            createdAt: historical.orderDate,
+            updatedAt: historical.settledAt,
+            hotel,
+            chatMessages: [],
+            feedback: null,
+          },
+          isSettled: true,
+          sessionEnded: true,
+          lastSettledAt: historical.settledAt,
+        });
+      }
+
       return NextResponse.json({ error: 'Order not found' }, { status: 404 });
     }
 
-    return NextResponse.json({ order });
+    // Check if table has been marked settled after this order
+    const table = await prisma.restaurantTable.findFirst({
+      where: { hotelId: order.hotelId, tableNumber: order.tableNumber },
+      select: { lastSettledAt: true },
+    });
+
+    const isSettled =
+      table?.lastSettledAt &&
+      new Date(order.createdAt).getTime() <= new Date(table.lastSettledAt).getTime() &&
+      order.status === 'done';
+
+    return NextResponse.json({
+      order,
+      isSettled: !!isSettled,
+      sessionEnded: !!isSettled,
+      lastSettledAt: table?.lastSettledAt,
+    });
   } catch (error) {
     console.error('Get order error:', error);
     return NextResponse.json({ error: 'Failed to fetch order' }, { status: 500 });

@@ -25,6 +25,8 @@ import {
   ArrowRight,
   ZoomIn,
   Send,
+  QrCode,
+  ChefHat,
 } from 'lucide-react';
 import { MenuItemData, HotelData, OrderItem, OrderData } from '@/lib/types';
 import { translations, Language } from '@/lib/i18n';
@@ -33,6 +35,7 @@ import ThreeDViewerModal from '@/components/ThreeDViewerModal';
 import ImageZoomModal from '@/components/ImageZoomModal';
 import { playChime, playCustomerMessageChime } from '@/lib/audio';
 import { useSocket } from '@/lib/socket';
+import TableQRScannerModal from '@/components/TableQRScannerModal';
 
 export default function CustomerMenuPage() {
   return (
@@ -57,6 +60,10 @@ function CustomerMenuContent() {
   const slug = params?.slug as string;
   const initialTable = searchParams?.get('table') || '';
   const editOrderId = searchParams?.get('editOrder');
+  const isFreshScan =
+    searchParams?.get('scan') === 'true' ||
+    searchParams?.get('qr') === '1' ||
+    Boolean(initialTable);
 
   const [hotel, setHotel] = useState<HotelData | null>(null);
   const [items, setItems] = useState<MenuItemData[]>([]);
@@ -67,6 +74,29 @@ function CustomerMenuContent() {
   const [lang, setLang] = useState<Language>('en');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // Session end & scan state
+  const [isSessionEnded, setIsSessionEnded] = useState(false);
+  const [sessionEndedMessage, setSessionEndedMessage] = useState<string | null>(null);
+  const [isQRScannerOpen, setIsQRScannerOpen] = useState(false);
+  const [sessionCreatedAt, setSessionCreatedAt] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      const now = new Date().toISOString();
+      if (isFreshScan) {
+        try {
+          sessionStorage.setItem(`session_time_${slug}_${initialTable}`, now);
+        } catch {}
+        return now;
+      }
+      try {
+        const saved = sessionStorage.getItem(`session_time_${slug}_${initialTable}`);
+        return saved || now;
+      } catch {
+        return now;
+      }
+    }
+    return new Date().toISOString();
+  });
 
   // Map of item id to popularity rank (1 = most ordered, 2 = 2nd, etc.)
   const itemRankMap = React.useMemo(() => {
@@ -197,12 +227,31 @@ function CustomerMenuContent() {
       }
     };
 
+    const handleTableSessionEnded = (data: any) => {
+      if (!tableNumber || String(data.tableNumber).trim() === String(tableNumber).trim()) {
+        setIsSessionEnded(true);
+        setSessionEndedMessage(
+          `Staff has settled and cleared Table #${tableNumber}. Thank you for dining with us! This dining session has officially closed. To place a new order, please scan the QR code on your table again.`
+        );
+        setCart([]);
+        setIsCartOpen(false);
+        try {
+          localStorage.removeItem(`last_order_${slug}`);
+          localStorage.removeItem(`last_table_${slug}`);
+          sessionStorage.removeItem(`session_time_${slug}_${tableNumber}`);
+        } catch {}
+        playChime('message');
+      }
+    };
+
     socket.on('chat_message', handleNewMessage);
+    socket.on('table_session_ended', handleTableSessionEnded);
 
     return () => {
       socket.off('chat_message', handleNewMessage);
+      socket.off('table_session_ended', handleTableSessionEnded);
     };
-  }, [socket, hotel?.id, tableNumber, isChatOpen]);
+  }, [socket, hotel?.id, tableNumber, isChatOpen, slug]);
 
   // Auto-scroll chat to bottom
   useEffect(() => {
@@ -292,7 +341,10 @@ function CustomerMenuContent() {
         );
         if (res.ok) {
           const data = await res.json();
+
           if (data.hasActiveOrder) {
+            // Active orders currently in the kitchen or being served for this table
+            setIsSessionEnded(false);
             setActiveTableSession({
               hasActiveOrder: true,
               count: data.count,
@@ -307,6 +359,25 @@ function CustomerMenuContent() {
             }
           } else {
             setActiveTableSession(null);
+            // No ongoing orders on this table.
+            if (isFreshScan) {
+              // Customer freshly opened menu or scanned table QR: start fresh active session
+              setIsSessionEnded(false);
+            } else if (data.lastSettledAt) {
+              const settledTime = new Date(data.lastSettledAt).getTime();
+              const sessTime = sessionCreatedAt ? new Date(sessionCreatedAt).getTime() : 0;
+              if (sessTime > 0 && sessTime < settledTime) {
+                setIsSessionEnded(true);
+                setSessionEndedMessage(
+                  `Staff has settled and cleared Table #${tableNumber}. Thank you for dining with us! This dining session has officially closed. To place a new order, please scan your table QR code again.`
+                );
+                setCart([]);
+              } else {
+                setIsSessionEnded(false);
+              }
+            } else {
+              setIsSessionEnded(false);
+            }
           }
         }
       } catch (err) {
@@ -315,7 +386,7 @@ function CustomerMenuContent() {
     }, 400);
 
     return () => clearTimeout(timer);
-  }, [slug, tableNumber]);
+  }, [slug, tableNumber, sessionCreatedAt, isFreshScan]);
 
   // If editOrderId is present, fetch and populate existing order to edit
   useEffect(() => {
@@ -359,6 +430,15 @@ function CustomerMenuContent() {
   }, [editOrderId]);
 
   const addToCart = (item: MenuItemData) => {
+    if (isSessionEnded) {
+      alert(
+        sessionEndedMessage ||
+          'This table session has ended because the bill was settled. Please scan the QR code on your table to start a new dining order.'
+      );
+      setIsQRScannerOpen(true);
+      return;
+    }
+
     setCart((prev) => {
       const existing = prev.find((i) => i.id === item.id);
       if (existing) {
@@ -410,6 +490,15 @@ function CustomerMenuContent() {
 
   const handlePlaceOrder = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSessionEnded) {
+      alert(
+        sessionEndedMessage ||
+          'This table session has ended because the bill was settled. Please scan the QR code on your table to start a new dining order.'
+      );
+      setIsQRScannerOpen(true);
+      return;
+    }
+
     if (!tableNumber.trim()) {
       alert('Please enter or verify your Table Number');
       return;
@@ -455,11 +544,20 @@ function CustomerMenuContent() {
           customerPhone: customerPhone.trim() || undefined,
           items: cart,
           notes: orderNotes.trim() || undefined,
+          sessionCreatedAt,
+          isFreshScan,
         }),
       });
 
       const data = await res.json();
       if (!res.ok) {
+        if (data.sessionEnded) {
+          setIsSessionEnded(true);
+          setSessionEndedMessage(data.error);
+          setCart([]);
+          setIsCartOpen(false);
+          setIsQRScannerOpen(true);
+        }
         throw new Error(data.error || 'Failed to place order');
       }
 
@@ -722,8 +820,37 @@ function CustomerMenuContent() {
         </div>
       )}
 
+      {/* Table Session Ended Banner */}
+      {isSessionEnded && (
+        <div className="max-w-4xl mx-auto px-4 mt-5">
+          <div className="p-4 sm:p-5 rounded-2xl bg-gradient-to-r from-red-500/15 via-dark-850 to-gold-500/15 border border-red-500/40 shadow-xl flex flex-col sm:flex-row sm:items-center justify-between gap-4 animate-fade-in">
+            <div className="flex items-center space-x-3.5">
+              <div className="w-10 h-10 rounded-2xl bg-red-500/20 text-red-400 flex items-center justify-center border border-red-500/30 shrink-0">
+                <AlertCircle className="w-5 h-5 animate-pulse" />
+              </div>
+              <div>
+                <h4 className="font-serif font-bold text-sm sm:text-base text-white flex items-center space-x-2">
+                  <span>Table #{tableNumber} Session Ended</span>
+                </h4>
+                <p className="text-xs text-slate-300 mt-1 max-w-md leading-relaxed">
+                  {sessionEndedMessage ||
+                    `Staff has settled and cleared Table #${tableNumber}. This dining session has officially closed. To place another order, please scan your table QR code again.`}
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={() => setIsQRScannerOpen(true)}
+              className="px-5 py-2.5 rounded-xl gold-btn text-black text-xs font-black flex items-center justify-center space-x-2 shadow-gold-glow shrink-0 hover:scale-105 transition"
+            >
+              <QrCode className="w-4 h-4" />
+              <span>Scan Table QR</span>
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Active Table Session Banner (Continuity for same table) */}
-      {!editingOrder && activeTableSession?.hasActiveOrder && (
+      {!editingOrder && !isSessionEnded && activeTableSession?.hasActiveOrder && (
         <div className="max-w-4xl mx-auto px-4 mt-5">
           <div className="p-4 rounded-2xl bg-gradient-to-r from-dark-850 via-dark-900 to-dark-850 border border-gold-500/50 shadow-gold-glow flex flex-col sm:flex-row sm:items-center justify-between gap-3 animate-fade-in">
             <div className="flex items-center space-x-3">
@@ -816,15 +943,15 @@ function CustomerMenuContent() {
               </button>
             </div>
 
-            {/* Horizontal Scroll Cards */}
-            <div className="flex items-stretch space-x-4 overflow-x-auto pb-3 pt-1 scrollbar-none snap-x snap-mandatory">
+            {/* Horizontal Scroll Cards (Compact Size) */}
+            <div className="flex items-stretch space-x-3.5 overflow-x-auto pb-3 pt-1 scrollbar-none snap-x snap-mandatory">
               {mostOrderedItems.slice(0, 6).map((item, idx) => {
                 const inCartItem = cart.find((i) => i.id === item.id);
                 const rank = idx + 1;
                 return (
                   <div
                     key={`spotlight-${item.id}`}
-                    className="snap-start shrink-0 w-[240px] sm:w-[260px] bg-dark-850/90 backdrop-blur-md border border-white/[0.08] hover:border-gold-500/40 rounded-3xl overflow-hidden shadow-premium-card flex flex-col justify-between group transition-all duration-300"
+                    className="snap-start shrink-0 w-[180px] sm:w-[200px] bg-dark-850/90 backdrop-blur-md border border-white/[0.08] hover:border-gold-500/40 rounded-2xl overflow-hidden shadow-premium-card flex flex-col justify-between group transition-all duration-300"
                   >
                     {/* Photo with badges */}
                     <div
@@ -841,7 +968,7 @@ function CustomerMenuContent() {
                           });
                         }
                       }}
-                      className={`relative w-full h-36 bg-dark-900 overflow-hidden ${
+                      className={`relative w-full h-28 sm:h-30 bg-dark-900 overflow-hidden ${
                         item.imageUrl && !failedImages[item.id] ? 'cursor-zoom-in group/photo' : ''
                       }`}
                     >
@@ -860,29 +987,29 @@ function CustomerMenuContent() {
                         </>
                       ) : (
                         <div className="w-full h-full flex flex-col items-center justify-center text-slate-600 bg-dark-900">
-                          <Utensils className="w-8 h-8 mb-1 opacity-40" />
-                          <span className="text-[10px]">Freshly Prepared</span>
+                          <Utensils className="w-7 h-7 mb-1 opacity-40" />
+                          <span className="text-[9px]">Freshly Prepared</span>
                         </div>
                       )}
 
                       {/* Rank Badge */}
-                      <div className="absolute top-2.5 left-2.5 z-10">
+                      <div className="absolute top-2 left-2 z-10">
                         {rank === 1 ? (
-                          <span className="px-2.5 py-1 rounded-full text-[10px] font-black bg-gradient-to-r from-amber-400 via-yellow-400 to-amber-500 text-black border border-yellow-200 shadow-lg shadow-yellow-500/30 ring-1 ring-yellow-300 flex items-center space-x-1">
-                            <Flame className="w-3 h-3 text-red-600 fill-red-600 animate-pulse" />
+                          <span className="px-2 py-0.5 rounded-full text-[9px] font-black bg-gradient-to-r from-amber-400 via-yellow-400 to-amber-500 text-black border border-yellow-200 shadow-md flex items-center space-x-1">
+                            <Flame className="w-2.5 h-2.5 text-red-600 fill-red-600 animate-pulse" />
                             <span>#1 {t.bestseller}</span>
                           </span>
                         ) : rank === 2 ? (
-                          <span className="px-2.5 py-1 rounded-full text-[10px] font-black bg-gradient-to-r from-slate-200 to-slate-400 text-slate-950 border border-white shadow-lg flex items-center space-x-1">
-                            <span>🥈 #2 {t.popularBadge}</span>
+                          <span className="px-2 py-0.5 rounded-full text-[9px] font-black bg-gradient-to-r from-slate-200 to-slate-400 text-slate-950 border border-white shadow-md flex items-center space-x-1">
+                            <span>🥈 #2</span>
                           </span>
                         ) : rank === 3 ? (
-                          <span className="px-2.5 py-1 rounded-full text-[10px] font-black bg-gradient-to-r from-amber-700 to-orange-700 text-amber-100 border border-amber-500/50 shadow-lg flex items-center space-x-1">
-                            <span>🥉 #3 {t.topPick}</span>
+                          <span className="px-2 py-0.5 rounded-full text-[9px] font-black bg-gradient-to-r from-amber-700 to-orange-700 text-amber-100 border border-amber-500/50 shadow-md flex items-center space-x-1">
+                            <span>🥉 #3</span>
                           </span>
                         ) : (
-                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-black/80 text-amber-300 border border-amber-500/30 backdrop-blur flex items-center space-x-1">
-                            <Flame className="w-2.5 h-2.5 text-amber-400" />
+                          <span className="px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-black/80 text-amber-300 border border-amber-500/30 backdrop-blur flex items-center space-x-1">
+                            <Flame className="w-2 h-2 text-amber-400" />
                             <span>#{rank}</span>
                           </span>
                         )}
@@ -900,70 +1027,70 @@ function CustomerMenuContent() {
                               imageUrl: item.imageUrl,
                             });
                           }}
-                          className="absolute top-2.5 right-2.5 px-2 py-0.5 rounded-full bg-gold-500/90 hover:bg-gold-500 text-black text-[9px] font-bold shadow-gold-glow backdrop-blur flex items-center space-x-1 transition z-10"
+                          className="absolute top-2 right-2 px-1.5 py-0.5 rounded-full bg-gold-500/90 hover:bg-gold-500 text-black text-[8px] font-bold shadow-gold-glow backdrop-blur flex items-center space-x-0.5 transition z-10"
                         >
-                          <Box className="w-2.5 h-2.5" />
+                          <Box className="w-2 h-2" />
                           <span>3D</span>
                         </button>
                       )}
 
                       {/* Social proof order count */}
                       {item.totalOrdered && item.totalOrdered > 0 && (
-                        <div className="absolute bottom-2 left-2.5 px-2 py-0.5 rounded-md bg-black/80 backdrop-blur-md border border-white/10 text-[9px] font-bold text-amber-300 flex items-center space-x-1">
-                          <Flame className="w-2.5 h-2.5 text-amber-400" />
-                          <span>{item.totalOrdered} {t.ordersCount}</span>
+                        <div className="absolute bottom-1.5 left-2 px-1.5 py-0.5 rounded-md bg-black/80 backdrop-blur-md border border-white/10 text-[8px] font-bold text-amber-300 flex items-center space-x-1">
+                          <Flame className="w-2 h-2 text-amber-400" />
+                          <span>{item.totalOrdered} ordered</span>
                         </div>
                       )}
                     </div>
 
                     {/* Content */}
-                    <div className="p-4 flex flex-col justify-between flex-1">
+                    <div className="p-3 flex flex-col justify-between flex-1">
                       <div>
-                        <h4 className="font-serif font-bold text-white text-sm line-clamp-1 group-hover:text-gold-300 transition-colors">
+                        <h4 className="font-serif font-bold text-white text-xs sm:text-sm line-clamp-1 group-hover:text-gold-300 transition-colors">
                           {item.name}
                         </h4>
                         {item.description && (
-                          <p className="text-[11px] text-slate-400 mt-1 line-clamp-2 leading-relaxed">
+                          <p className="text-[10px] text-slate-400 mt-0.5 line-clamp-1 leading-normal">
                             {item.description}
                           </p>
                         )}
                       </div>
 
-                      <div className="mt-3 pt-2.5 border-t border-white/[0.08] flex items-center justify-between">
-                        <span className="text-base font-serif font-black text-gold-400">
+                      <div className="mt-2.5 pt-2 border-t border-white/[0.08] flex items-center justify-between">
+                        <span className="text-sm sm:text-base font-serif font-black text-gold-400">
                           {formatNPR(item.price, lang === 'ne')}
                         </span>
 
                         {item.isAvailable ? (
                           inCartItem ? (
-                            <div className="flex items-center space-x-1.5 bg-dark-900 border border-gold-500/40 rounded-xl p-0.5 shadow-gold-glow">
+                            <div className="flex items-center space-x-1 bg-dark-900 border border-gold-500/40 rounded-lg p-0.5 shadow-gold-glow">
                               <button
                                 onClick={() => updateQuantity(item.id, -1)}
-                                className="w-6 h-6 rounded-lg bg-dark-800 text-gold-400 flex items-center justify-center hover:bg-gold-500 hover:text-black transition"
+                                className="w-5 h-5 rounded-md bg-dark-800 text-gold-400 flex items-center justify-center hover:bg-gold-500 hover:text-black transition"
                               >
-                                <Minus className="w-3 h-3" />
+                                <Minus className="w-2.5 h-2.5" />
                               </button>
-                              <span className="text-xs font-bold text-white px-1">
+                              <span className="text-[11px] font-bold text-white px-1">
                                 {inCartItem.quantity}
                               </span>
                               <button
                                 onClick={() => updateQuantity(item.id, 1)}
-                                className="w-6 h-6 rounded-lg bg-gold-500 text-black flex items-center justify-center hover:bg-gold-400 transition"
+                                className="w-5 h-5 rounded-md bg-gold-500 text-black flex items-center justify-center hover:bg-gold-400 transition"
                               >
-                                <Plus className="w-3 h-3" />
+                                <Plus className="w-2.5 h-2.5" />
                               </button>
                             </div>
                           ) : (
                             <button
                               onClick={() => addToCart(item)}
-                              className="px-3 py-1.5 rounded-xl gold-btn text-[11px] font-bold flex items-center space-x-1 shadow-sm"
+                              className="px-2.5 py-1 rounded-lg gold-btn text-[10px] font-bold flex items-center space-x-1 shadow-sm"
                             >
-                              <Plus className="w-3 h-3" />
+                              <Plus className="w-2.5 h-2.5" />
                               <span>{t.orderNow}</span>
                             </button>
                           )
                         ) : (
-                          <span className="text-[10px] text-red-400 bg-red-500/10 px-2 py-0.5 rounded-md border border-red-500/20">
+                          <span className="text-[9px] text-red-400 bg-red-500/10 px-1.5 py-0.5 rounded border border-red-500/20">
                             {t.outOfStock}
                           </span>
                         )}
@@ -1109,13 +1236,13 @@ function CustomerMenuContent() {
             </button>
           </div>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+          <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4.5">
             {filteredItems.map((item) => {
               const inCartItem = cart.find((i) => i.id === item.id);
               return (
                 <div
                   key={item.id}
-                  className="group relative bg-dark-850/90 backdrop-blur-md border border-white/[0.08] hover:border-gold-500/40 rounded-3xl overflow-hidden shadow-premium-card transition-all duration-300 flex flex-col justify-between"
+                  className="group relative bg-dark-850/90 backdrop-blur-md border border-white/[0.08] hover:border-gold-500/40 rounded-2xl sm:rounded-3xl overflow-hidden shadow-premium-card transition-all duration-300 flex flex-col justify-between"
                 >
                   {/* Photo Container - Click to Zoom & Look Around */}
                   <div
@@ -1132,7 +1259,7 @@ function CustomerMenuContent() {
                         });
                       }
                     }}
-                    className={`relative w-full h-48 bg-dark-900 overflow-hidden ${
+                    className={`relative w-full h-28 sm:h-36 md:h-40 bg-dark-900 overflow-hidden ${
                       item.imageUrl && !failedImages[item.id] ? 'cursor-zoom-in group/photo' : ''
                     }`}
                     title={
@@ -1153,15 +1280,15 @@ function CustomerMenuContent() {
                           }}
                         />
                         {/* Hover / Tap Zoom badge */}
-                        <div className="absolute bottom-3 right-3 px-2.5 py-1 rounded-full bg-black/75 backdrop-blur-md border border-white/10 text-white text-[10px] font-bold opacity-80 sm:opacity-0 sm:group-hover/photo:opacity-100 transition-opacity flex items-center space-x-1 shadow-lg pointer-events-none">
-                          <ZoomIn className="w-3 h-3 text-gold-400" />
-                          <span>Tap to Zoom</span>
+                        <div className="absolute bottom-2 right-2 px-2 py-0.5 rounded-full bg-black/75 backdrop-blur-md border border-white/10 text-white text-[9px] font-bold opacity-80 sm:opacity-0 sm:group-hover/photo:opacity-100 transition-opacity flex items-center space-x-1 shadow-lg pointer-events-none">
+                          <ZoomIn className="w-2.5 h-2.5 text-gold-400" />
+                          <span>Zoom</span>
                         </div>
                       </>
                     ) : (
                       <div className="w-full h-full flex flex-col items-center justify-center text-slate-600 bg-dark-900">
-                        <Utensils className="w-10 h-10 mb-1 opacity-40" />
-                        <span className="text-[10px]">Freshly Prepared</span>
+                        <Utensils className="w-8 h-8 mb-1 opacity-40" />
+                        <span className="text-[9px]">Freshly Prepared</span>
                       </div>
                     )}
 
@@ -1169,41 +1296,41 @@ function CustomerMenuContent() {
                     <div className="absolute inset-0 bg-gradient-to-t from-dark-850 via-transparent to-transparent opacity-80" />
 
                     {/* Category Glass Tag */}
-                    <div className="absolute top-3 left-3 px-2.5 py-1 rounded-lg bg-black/75 backdrop-blur-md border border-white/10 text-[10px] font-bold text-gold-400 flex items-center space-x-1 z-10">
+                    <div className="absolute top-2 left-2 px-2 py-0.5 rounded-md bg-black/75 backdrop-blur-md border border-white/10 text-[9px] font-bold text-gold-400 flex items-center space-x-1 z-10">
                       <span>{getCategoryDetails(item.category, lang).icon}</span>
-                      <span>{getCategoryDetails(item.category, lang).label}</span>
+                      <span className="hidden xs:inline">{getCategoryDetails(item.category, lang).label}</span>
                     </div>
 
                     {/* Top Right Badges: Rank Badge & 3D Food Preview */}
-                    <div className="absolute top-3 right-3 flex flex-col items-end gap-1.5 z-10">
+                    <div className="absolute top-2 right-2 flex flex-col items-end gap-1 z-10">
                       {(() => {
                         const rank = itemRankMap.get(item.id);
                         if (rank === 1) {
                           return (
-                            <span className="px-2.5 py-1 rounded-full text-[10px] font-black bg-gradient-to-r from-amber-400 via-yellow-400 to-amber-500 text-black border border-yellow-200 shadow-lg shadow-yellow-500/30 ring-1 ring-yellow-300 flex items-center space-x-1">
-                              <Flame className="w-3 h-3 text-red-600 fill-red-600 animate-pulse" />
-                              <span>#1 {t.bestseller}</span>
+                            <span className="px-2 py-0.5 rounded-full text-[9px] font-black bg-gradient-to-r from-amber-400 via-yellow-400 to-amber-500 text-black border border-yellow-200 shadow-md flex items-center space-x-0.5">
+                              <Flame className="w-2.5 h-2.5 text-red-600 fill-red-600 animate-pulse" />
+                              <span>#1</span>
                             </span>
                           );
                         }
                         if (rank === 2) {
                           return (
-                            <span className="px-2.5 py-1 rounded-full text-[10px] font-black bg-gradient-to-r from-slate-200 to-slate-400 text-slate-950 border border-white shadow-lg flex items-center space-x-1">
-                              <span>🥈 #2 {t.popularBadge}</span>
+                            <span className="px-2 py-0.5 rounded-full text-[9px] font-black bg-gradient-to-r from-slate-200 to-slate-400 text-slate-950 border border-white shadow-md flex items-center space-x-0.5">
+                              <span>🥈 #2</span>
                             </span>
                           );
                         }
                         if (rank === 3) {
                           return (
-                            <span className="px-2.5 py-1 rounded-full text-[10px] font-black bg-gradient-to-r from-amber-700 to-orange-700 text-amber-100 border border-amber-500/50 shadow-lg flex items-center space-x-1">
-                              <span>🥉 #3 {t.topPick}</span>
+                            <span className="px-2 py-0.5 rounded-full text-[9px] font-black bg-gradient-to-r from-amber-700 to-orange-700 text-amber-100 border border-amber-500/50 shadow-md flex items-center space-x-0.5">
+                              <span>🥉 #3</span>
                             </span>
                           );
                         }
                         if (rank && rank <= 5) {
                           return (
-                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-black/80 text-amber-300 border border-amber-500/30 backdrop-blur flex items-center space-x-1">
-                              <Flame className="w-2.5 h-2.5 text-amber-400" />
+                            <span className="px-1.5 py-0.5 rounded-full text-[8px] font-bold bg-black/80 text-amber-300 border border-amber-500/30 backdrop-blur flex items-center space-x-0.5">
+                              <Flame className="w-2 h-2 text-amber-400" />
                               <span>#{rank}</span>
                             </span>
                           );
@@ -1222,44 +1349,44 @@ function CustomerMenuContent() {
                               imageUrl: item.imageUrl,
                             });
                           }}
-                          className="px-2.5 py-1 rounded-full bg-gold-500/90 hover:bg-gold-500 text-black text-[10px] font-bold shadow-gold-glow backdrop-blur flex items-center space-x-1 transition"
+                          className="px-2 py-0.5 rounded-full bg-gold-500/90 hover:bg-gold-500 text-black text-[8px] font-bold shadow-gold-glow backdrop-blur flex items-center space-x-0.5 transition"
                         >
-                          <Box className="w-3 h-3" />
-                          <span>{t.threeDPreview}</span>
+                          <Box className="w-2.5 h-2.5" />
+                          <span>3D</span>
                         </button>
                       )}
                     </div>
 
                     {/* Social proof order tag if ordered */}
                     {item.totalOrdered && item.totalOrdered > 0 && (
-                      <div className="absolute bottom-3 left-3 px-2 py-0.5 rounded-md bg-black/80 backdrop-blur-md border border-white/10 text-[9px] font-bold text-amber-300 flex items-center space-x-1 pointer-events-none z-10">
-                        <Flame className="w-2.5 h-2.5 text-amber-400" />
-                        <span>{item.totalOrdered} {t.ordersCount}</span>
+                      <div className="absolute bottom-2 left-2 px-1.5 py-0.5 rounded-md bg-black/80 backdrop-blur-md border border-white/10 text-[8px] font-bold text-amber-300 flex items-center space-x-0.5 pointer-events-none z-10">
+                        <Flame className="w-2 h-2 text-amber-400" />
+                        <span>{item.totalOrdered} ordered</span>
                       </div>
                     )}
                   </div>
 
                   {/* Card Content Body */}
-                  <div className="p-5 flex flex-col flex-1 justify-between">
+                  <div className="p-3 sm:p-3.5 flex flex-col flex-1 justify-between">
                     <div>
-                      <h3 className="font-serif font-bold text-white text-base leading-snug group-hover:text-gold-300 transition-colors">
+                      <h3 className="font-serif font-bold text-white text-xs sm:text-sm md:text-base leading-snug line-clamp-1 group-hover:text-gold-300 transition-colors">
                         {item.name}
                       </h3>
 
                       {item.description && (
-                        <p className="text-xs text-slate-400 mt-1.5 line-clamp-2 leading-relaxed font-normal">
+                        <p className="text-[10px] sm:text-[11px] text-slate-400 mt-1 line-clamp-1 sm:line-clamp-2 leading-relaxed font-normal">
                           {item.description}
                         </p>
                       )}
                     </div>
 
                     {/* Price & Add to Cart Row */}
-                    <div className="mt-5 pt-3.5 border-t border-white/[0.08] flex items-center justify-between">
+                    <div className="mt-2.5 sm:mt-3 pt-2 border-t border-white/[0.08] flex items-center justify-between gap-1">
                       <div>
-                        <span className="text-[9px] uppercase font-bold text-slate-500 tracking-wider block">
+                        <span className="text-[8px] uppercase font-bold text-slate-500 tracking-wider block">
                           Price
                         </span>
-                        <span className="text-lg font-serif font-black text-gold-400">
+                        <span className="text-xs sm:text-sm md:text-base font-serif font-black text-gold-400">
                           {formatNPR(item.price, lang === 'ne')}
                         </span>
                       </div>
@@ -1267,34 +1394,34 @@ function CustomerMenuContent() {
                       {/* Quantity Controls or Order Now Button */}
                       {item.isAvailable ? (
                         inCartItem ? (
-                          <div className="flex items-center space-x-2 bg-dark-900 border border-gold-500/40 rounded-xl p-1 shadow-gold-glow">
+                          <div className="flex items-center space-x-1 bg-dark-900 border border-gold-500/40 rounded-lg p-0.5 shadow-gold-glow">
                             <button
                               onClick={() => updateQuantity(item.id, -1)}
-                              className="w-7 h-7 rounded-lg bg-dark-800 text-gold-400 flex items-center justify-center hover:bg-gold-500 hover:text-black transition"
+                              className="w-5 h-5 sm:w-6 sm:h-6 rounded bg-dark-800 text-gold-400 flex items-center justify-center hover:bg-gold-500 hover:text-black transition"
                             >
-                              <Minus className="w-3.5 h-3.5" />
+                              <Minus className="w-2.5 h-2.5" />
                             </button>
-                            <span className="text-xs font-bold text-white px-1.5">
+                            <span className="text-[11px] sm:text-xs font-bold text-white px-1">
                               {inCartItem.quantity}
                             </span>
                             <button
                               onClick={() => updateQuantity(item.id, 1)}
-                              className="w-7 h-7 rounded-lg bg-gold-500 text-black flex items-center justify-center hover:bg-gold-400 transition"
+                              className="w-5 h-5 sm:w-6 sm:h-6 rounded bg-gold-500 text-black flex items-center justify-center hover:bg-gold-400 transition"
                             >
-                              <Plus className="w-3.5 h-3.5" />
+                              <Plus className="w-2.5 h-2.5" />
                             </button>
                           </div>
                         ) : (
                           <button
                             onClick={() => addToCart(item)}
-                            className="px-4 py-2 rounded-xl gold-btn text-xs font-bold flex items-center space-x-1.5"
+                            className="px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-lg sm:rounded-xl gold-btn text-[10px] sm:text-xs font-bold flex items-center space-x-1 shadow-sm"
                           >
-                            <Plus className="w-3.5 h-3.5" />
+                            <Plus className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
                             <span>{t.orderNow}</span>
                           </button>
                         )
                       ) : (
-                        <span className="text-[11px] font-semibold text-red-400 bg-red-500/10 px-3 py-1 rounded-lg border border-red-500/20">
+                        <span className="text-[9px] font-semibold text-red-400 bg-red-500/10 px-1.5 py-0.5 rounded border border-red-500/20">
                           {t.outOfStock}
                         </span>
                       )}
@@ -1308,7 +1435,7 @@ function CustomerMenuContent() {
       </main>
 
       {/* Floating Bottom Cart Bar */}
-      {cart.length > 0 && (
+      {cart.length > 0 && !isSessionEnded && (
         <div className="fixed bottom-5 left-4 right-4 max-w-md mx-auto z-40 animate-slide-up">
           <button
             onClick={() => setIsCartOpen(true)}
@@ -1333,6 +1460,36 @@ function CustomerMenuContent() {
               <ChevronRight className="w-4 h-4" />
             </div>
           </button>
+        </div>
+      )}
+
+      {/* Floating Bottom Live Order Status Bar (When diner has active table orders and cart is empty) */}
+      {cart.length === 0 && !isSessionEnded && activeTableSession?.hasActiveOrder && activeTableSession.latestOrderId && (
+        <div className="fixed bottom-5 left-4 right-4 max-w-md mx-auto z-40 animate-slide-up">
+          <Link
+            href={`/order/${activeTableSession.latestOrderId}`}
+            className="w-full p-3.5 sm:p-4 rounded-2xl bg-[#16171B]/95 border border-gold-500/60 text-white flex items-center justify-between shadow-gold-glow backdrop-blur-xl group hover:border-gold-400 transition"
+          >
+            <div className="flex items-center space-x-3">
+              <div className="w-10 h-10 rounded-xl bg-gold-500/20 text-gold-400 flex items-center justify-center border border-gold-500/30 relative">
+                <ChefHat className="w-5 h-5 animate-pulse" />
+                <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 absolute -top-0.5 -right-0.5 border-2 border-[#16171B]" />
+              </div>
+              <div className="text-left">
+                <div className="text-[10px] uppercase font-bold text-gold-400 tracking-wider">
+                  Table #{tableNumber} • {activeTableSession.count} {activeTableSession.count === 1 ? 'Order' : 'Rounds'} Active
+                </div>
+                <div className="text-xs sm:text-sm font-serif font-bold text-white flex items-center space-x-1.5">
+                  <span>Tracking Live Kitchen Status</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center space-x-1 text-xs font-bold gold-btn text-black px-3.5 py-2 rounded-xl shadow-md group-hover:scale-105 transition">
+              <span>View Order</span>
+              <ChevronRight className="w-3.5 h-3.5" />
+            </div>
+          </Link>
         </div>
       )}
 
@@ -1672,6 +1829,27 @@ function CustomerMenuContent() {
           </div>
         </div>
       )}
+
+      {/* Table QR Scanner Modal */}
+      <TableQRScannerModal
+        isOpen={isQRScannerOpen}
+        onClose={() => setIsQRScannerOpen(false)}
+        hotelSlug={slug}
+        expectedTableNumber={tableNumber}
+        onScanSuccess={(scannedTbl) => {
+          const freshTable = scannedTbl || tableNumber;
+          setTableNumber(freshTable);
+          setIsSessionEnded(false);
+          setSessionEndedMessage(null);
+          const now = new Date().toISOString();
+          setSessionCreatedAt(now);
+          try {
+            sessionStorage.setItem(`session_time_${slug}_${freshTable}`, now);
+          } catch {}
+          showToast(`Fresh dining session activated for Table #${freshTable}!`);
+          router.push(`/menu/${slug}?table=${encodeURIComponent(freshTable)}&qr=1&scan=true`);
+        }}
+      />
     </div>
   );
 }

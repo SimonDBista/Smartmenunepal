@@ -17,6 +17,7 @@ import {
   ShieldAlert,
   Utensils,
   Bell,
+  Boxes,
 } from 'lucide-react';
 import { HotelData } from '@/lib/types';
 import OrderNotificationToast from '@/components/OrderNotificationToast';
@@ -133,6 +134,7 @@ export default function DashboardLayout({
     { label: 'Reviews & Ratings', href: '/dashboard/feedback', icon: Star },
     { label: 'Sales Reports', href: '/dashboard/reports', icon: BarChart3 },
     { label: 'Menu QR Code', href: '/dashboard/qr', icon: QrCode },
+    { label: 'Ingredient Inventory', href: '/dashboard/inventory', icon: Boxes },
   ];
 
   return (

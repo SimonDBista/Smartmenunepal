@@ -4,7 +4,11 @@ const globalForPrisma = global as unknown as { prisma: PrismaClient };
 
 // In development, if schema models were added while dev server was running, ensure client is fresh
 function getPrisma(): PrismaClient {
-  if (globalForPrisma.prisma && (globalForPrisma.prisma as any).historicalSale) {
+  if (
+    globalForPrisma.prisma &&
+    (globalForPrisma.prisma as any).historicalSale &&
+    (globalForPrisma.prisma as any).ingredient
+  ) {
     return globalForPrisma.prisma;
   }
 
@@ -27,5 +31,14 @@ function getPrisma(): PrismaClient {
   return newClient;
 }
 
-export const prisma = getPrisma();
+export const prisma = new Proxy({} as PrismaClient, {
+  get(_target, prop) {
+    const client = getPrisma();
+    const val = (client as any)[prop];
+    if (typeof val === 'function') {
+      return val.bind(client);
+    }
+    return val;
+  },
+});
 export default prisma;

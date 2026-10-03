@@ -103,3 +103,31 @@ export function getCategoryDetails(
   return { label: formatted, icon: '🏷️' };
 }
 
+export function getAppBaseUrl(request?: { headers: { get: (name: string) => string | null } }): string {
+  if (request) {
+    const host = request.headers.get('x-forwarded-host') || request.headers.get('host');
+    if (host) {
+      const isLocal =
+        process.env.NODE_ENV === 'development' ||
+        host.includes('localhost') ||
+        host.includes('127.0.0.1') ||
+        /^192\.168\./.test(host) ||
+        /^10\./.test(host) ||
+        /^172\.(1[6-9]|2[0-9]|3[0-1])\./.test(host);
+
+      if (isLocal || !process.env.NEXT_PUBLIC_APP_URL) {
+        const proto =
+          request.headers.get('x-forwarded-proto') ||
+          (host.includes('localhost') || host.includes('127.0.0.1') ? 'http' : 'https');
+        return `${proto}://${host}`;
+      }
+    }
+  }
+
+  const envUrl = process.env.NEXT_PUBLIC_APP_URL?.trim();
+  if (envUrl) {
+    return envUrl.replace(/\/+$/, '');
+  }
+
+  return 'http://localhost:3000';
+}

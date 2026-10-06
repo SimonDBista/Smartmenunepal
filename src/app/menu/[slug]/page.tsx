@@ -37,6 +37,20 @@ import { playChime, playCustomerMessageChime } from '@/lib/audio';
 import { useSocket } from '@/lib/socket';
 import TableQRScannerModal from '@/components/TableQRScannerModal';
 
+function isBackForwardNavigation(): boolean {
+  if (typeof window === 'undefined') return false;
+  try {
+    const navEntries = window.performance.getEntriesByType('navigation');
+    if (navEntries.length > 0) {
+      const nav = navEntries[0] as PerformanceNavigationTiming;
+      return nav.type === 'back_forward';
+    }
+    return (window.performance as any)?.navigation?.type === 2;
+  } catch {
+    return false;
+  }
+}
+
 export default function CustomerMenuPage() {
   return (
     <Suspense
@@ -58,12 +72,28 @@ function CustomerMenuContent() {
   const router = useRouter();
 
   const slug = params?.slug as string;
-  const initialTable = searchParams?.get('table') || '';
+  const rawInitialTable = searchParams?.get('table') || '';
   const editOrderId = searchParams?.get('editOrder');
-  const isFreshScan =
-    searchParams?.get('scan') === 'true' ||
-    searchParams?.get('qr') === '1' ||
-    Boolean(initialTable);
+
+  const scanParam = searchParams?.get('scan') === 'true';
+  const qrParam = searchParams?.get('qr') === '1';
+
+  // Check if session for this table was settled & ended in storage, or arrived via back navigation
+  const isEndedInStorage =
+    typeof window !== 'undefined' && rawInitialTable
+      ? sessionStorage.getItem(`table_session_ended_${slug}_${rawInitialTable}`) === 'true'
+      : false;
+
+  const isBackNav = typeof window !== 'undefined' ? isBackForwardNavigation() : false;
+
+  // If table was settled in storage, or arrived via back navigation when ended
+  const isTableEnded = isEndedInStorage || (isBackNav && isEndedInStorage);
+
+  // Fresh scan is ONLY true if explicitly scanned via scanner modal, or fresh camera QR navigation and NOT marked ended
+  const isFreshScan = scanParam || (qrParam && !isTableEnded && !isBackNav);
+
+  // Table number MUST be empty if ended, to never restore or show settled table on back navigation
+  const initialTable = isTableEnded ? '' : rawInitialTable;
 
   const [hotel, setHotel] = useState<HotelData | null>(null);
   const [items, setItems] = useState<MenuItemData[]>([]);
@@ -76,13 +106,17 @@ function CustomerMenuContent() {
   const [error, setError] = useState<string | null>(null);
 
   // Session end & scan state
-  const [isSessionEnded, setIsSessionEnded] = useState(false);
-  const [sessionEndedMessage, setSessionEndedMessage] = useState<string | null>(null);
+  const [isSessionEnded, setIsSessionEnded] = useState(isTableEnded);
+  const [sessionEndedMessage, setSessionEndedMessage] = useState<string | null>(
+    isTableEnded
+      ? `Staff has settled and cleared Table #${rawInitialTable}. This dining session has officially closed. To place a new order, please scan your table QR code again.`
+      : null
+  );
   const [isQRScannerOpen, setIsQRScannerOpen] = useState(false);
   const [sessionCreatedAt, setSessionCreatedAt] = useState<string>(() => {
     if (typeof window !== 'undefined') {
       const now = new Date().toISOString();
-      if (isFreshScan) {
+      if (isFreshScan && !isTableEnded) {
         try {
           sessionStorage.setItem(`session_time_${slug}_${initialTable}`, now);
         } catch {}
@@ -90,12 +124,12 @@ function CustomerMenuContent() {
       }
       try {
         const saved = sessionStorage.getItem(`session_time_${slug}_${initialTable}`);
-        return saved || now;
+        return saved || '';
       } catch {
-        return now;
+        return '';
       }
     }
-    return new Date().toISOString();
+    return '';
   });
 
   // Map of item id to popularity rank (1 = most ordered, 2 = 2nd, etc.)
@@ -228,19 +262,26 @@ function CustomerMenuContent() {
     };
 
     const handleTableSessionEnded = (data: any) => {
+      const endedTbl = data?.tableNumber || tableNumber;
       if (!tableNumber || String(data.tableNumber).trim() === String(tableNumber).trim()) {
         setIsSessionEnded(true);
         setSessionEndedMessage(
-          `Staff has settled and cleared Table #${tableNumber}. Thank you for dining with us! This dining session has officially closed. To place a new order, please scan the QR code on your table again.`
+          `Staff has settled and cleared Table #${endedTbl}. Thank you for dining with us! This dining session has officially closed. To place a new order, please scan the QR code on your table again.`
         );
         setCart([]);
         setIsCartOpen(false);
+        setTableNumber('');
         try {
           localStorage.removeItem(`last_order_${slug}`);
           localStorage.removeItem(`last_table_${slug}`);
-          sessionStorage.removeItem(`session_time_${slug}_${tableNumber}`);
+          sessionStorage.removeItem(`session_time_${slug}_${endedTbl}`);
+          sessionStorage.setItem(`table_session_ended_${slug}_${endedTbl}`, 'true');
+          localStorage.setItem(`table_settled_at_${slug}_${endedTbl}`, data?.settledAt || new Date().toISOString());
         } catch {}
+        // Clean URL so refresh does not restore settled table
+        router.replace(`/menu/${slug}`);
         playChime('message');
+        setIsQRScannerOpen(true);
       }
     };
 
@@ -320,10 +361,42 @@ function CustomerMenuContent() {
   }, [slug]);
 
   useEffect(() => {
-    if (initialTable) {
+    if (rawInitialTable && isTableEnded) {
+      setTableNumber('');
+      setIsSessionEnded(true);
+      setSessionEndedMessage(
+        `Staff has settled and cleared Table #${rawInitialTable}. This dining session has officially closed. To place a new order, please scan your table QR code again.`
+      );
+      setCart([]);
+      router.replace(`/menu/${slug}`);
+    } else if (initialTable) {
       setTableNumber(initialTable);
     }
-  }, [initialTable]);
+  }, [initialTable, rawInitialTable, isTableEnded, slug, router]);
+
+  // Handle pageshow event for mobile Safari / Chrome bfcache back navigation
+  useEffect(() => {
+    const handlePageShow = (event: PageTransitionEvent) => {
+      const isBackForward = event.persisted || isBackForwardNavigation();
+      const currentTbl = searchParams?.get('table') || rawInitialTable || tableNumber;
+      if (currentTbl && slug) {
+        const endedInStorage = sessionStorage.getItem(`table_session_ended_${slug}_${currentTbl}`) === 'true';
+        if (endedInStorage || isBackForward) {
+          if (endedInStorage) {
+            setTableNumber('');
+            setIsSessionEnded(true);
+            setSessionEndedMessage(
+              `Staff has settled and cleared Table #${currentTbl}. This dining session has officially closed. To place a new order, please scan your table QR code again.`
+            );
+            setCart([]);
+            router.replace(`/menu/${slug}`);
+          }
+        }
+      }
+    };
+    window.addEventListener('pageshow', handlePageShow);
+    return () => window.removeEventListener('pageshow', handlePageShow);
+  }, [slug, searchParams, rawInitialTable, tableNumber, router]);
 
   // Check if active table orders exist whenever tableNumber changes
   useEffect(() => {
@@ -341,6 +414,15 @@ function CustomerMenuContent() {
         );
         if (res.ok) {
           const data = await res.json();
+
+          if (data.sessionToken && !isSessionEnded) {
+            try {
+              sessionStorage.setItem(
+                `table_session_token_${slug}_${tableNumber.trim()}`,
+                data.sessionToken
+              );
+            } catch {}
+          }
 
           if (data.hasActiveOrder) {
             // Active orders currently in the kitchen or being served for this table
@@ -360,18 +442,30 @@ function CustomerMenuContent() {
           } else {
             setActiveTableSession(null);
             // No ongoing orders on this table.
-            if (isFreshScan) {
-              // Customer freshly opened menu or scanned table QR: start fresh active session
-              setIsSessionEnded(false);
+            const endedInStorage =
+              typeof window !== 'undefined' && tableNumber
+                ? sessionStorage.getItem(`table_session_ended_${slug}_${tableNumber}`) === 'true'
+                : false;
+
+            if (endedInStorage) {
+              setIsSessionEnded(true);
+              setSessionEndedMessage(
+                `Staff has settled and cleared Table #${tableNumber}. This dining session has officially closed. To place a new order, please scan your table QR code again.`
+              );
+              setCart([]);
+              setTableNumber('');
+              router.replace(`/menu/${slug}`);
             } else if (data.lastSettledAt) {
               const settledTime = new Date(data.lastSettledAt).getTime();
               const sessTime = sessionCreatedAt ? new Date(sessionCreatedAt).getTime() : 0;
-              if (sessTime > 0 && sessTime < settledTime) {
+              if (!isFreshScan && (sessTime === 0 || sessTime <= settledTime)) {
                 setIsSessionEnded(true);
                 setSessionEndedMessage(
-                  `Staff has settled and cleared Table #${tableNumber}. Thank you for dining with us! This dining session has officially closed. To place a new order, please scan your table QR code again.`
+                  `Staff has settled and cleared Table #${tableNumber}. This dining session has officially closed. To place a new order, please scan your table QR code again.`
                 );
                 setCart([]);
+                setTableNumber('');
+                router.replace(`/menu/${slug}`);
               } else {
                 setIsSessionEnded(false);
               }
@@ -386,7 +480,7 @@ function CustomerMenuContent() {
     }, 400);
 
     return () => clearTimeout(timer);
-  }, [slug, tableNumber, sessionCreatedAt, isFreshScan]);
+  }, [slug, tableNumber, sessionCreatedAt, isFreshScan, isSessionEnded]);
 
   // If editOrderId is present, fetch and populate existing order to edit
   useEffect(() => {
@@ -430,11 +524,7 @@ function CustomerMenuContent() {
   }, [editOrderId]);
 
   const addToCart = (item: MenuItemData) => {
-    if (isSessionEnded) {
-      alert(
-        sessionEndedMessage ||
-          'This table session has ended because the bill was settled. Please scan the QR code on your table to start a new dining order.'
-      );
+    if (isSessionEnded || !tableNumber.trim()) {
       setIsQRScannerOpen(true);
       return;
     }
@@ -490,17 +580,8 @@ function CustomerMenuContent() {
 
   const handlePlaceOrder = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (isSessionEnded) {
-      alert(
-        sessionEndedMessage ||
-          'This table session has ended because the bill was settled. Please scan the QR code on your table to start a new dining order.'
-      );
+    if (isSessionEnded || !tableNumber.trim()) {
       setIsQRScannerOpen(true);
-      return;
-    }
-
-    if (!tableNumber.trim()) {
-      alert('Please enter or verify your Table Number');
       return;
     }
     if (cart.length === 0) {
@@ -533,6 +614,11 @@ function CustomerMenuContent() {
         return;
       }
 
+      const storedSessionToken =
+        typeof window !== 'undefined'
+          ? sessionStorage.getItem(`table_session_token_${slug}_${tableNumber.trim()}`)
+          : undefined;
+
       // Normal order or Round 2+ for this table
       const res = await fetch('/api/public/orders', {
         method: 'POST',
@@ -545,6 +631,7 @@ function CustomerMenuContent() {
           items: cart,
           notes: orderNotes.trim() || undefined,
           sessionCreatedAt,
+          sessionToken: storedSessionToken || undefined,
           isFreshScan,
         }),
       });
@@ -726,13 +813,17 @@ function CustomerMenuContent() {
             <div className="h-[1px] w-14 bg-gradient-to-l from-transparent via-gold-500/60 to-gold-500" />
           </div>
 
-          {/* Active Table Number Tag */}
+          {/* Active Table Indicator (Verified or Scan Prompt) */}
           <div className="inline-flex items-center space-x-2 px-3.5 py-1.5 rounded-full bg-dark-950 border border-gold-400/40 shadow-gold-glow mb-4">
-            <span className={`w-2 h-2 rounded-full ${initialTable ? 'bg-emerald-400' : 'bg-gold-400'} animate-pulse`} />
+            <span
+              className={`w-2 h-2 rounded-full ${
+                tableNumber && !isSessionEnded ? 'bg-emerald-400' : 'bg-amber-400'
+              } animate-pulse`}
+            />
             <div className="text-xs font-bold text-white flex items-center space-x-1.5">
               <span>{t.table}:</span>
-              {initialTable ? (
-                <span className="text-gold-300 font-extrabold flex items-center space-x-1">
+              {tableNumber && !isSessionEnded ? (
+                <span className="text-gold-300 font-extrabold flex items-center space-x-1.5">
                   <span>
                     {tableNumber.toLowerCase().startsWith('room')
                       ? `Rooms #${tableNumber.replace(/^room\s*#?/i, '')}`
@@ -743,13 +834,16 @@ function CustomerMenuContent() {
                   </span>
                 </span>
               ) : (
-                <input
-                  type="text"
-                  value={tableNumber}
-                  onChange={(e) => setTableNumber(e.target.value)}
-                  placeholder="Enter Table #"
-                  className="w-24 bg-transparent text-xs font-bold text-gold-400 placeholder-gold-400/60 focus:outline-none border-b border-gold-400/30 focus:border-gold-400 text-center"
-                />
+                <button
+                  type="button"
+                  onClick={() => setIsQRScannerOpen(true)}
+                  className="text-xs font-bold text-gold-400 hover:text-gold-300 underline flex items-center space-x-1"
+                >
+                  <span>Not Scanned</span>
+                  <span className="text-[10px] bg-gold-500/20 text-gold-300 px-1.5 py-0.5 rounded font-semibold ml-0.5">
+                    Scan QR
+                  </span>
+                </button>
               )}
             </div>
           </div>
@@ -823,27 +917,32 @@ function CustomerMenuContent() {
       {/* Table Session Ended Banner */}
       {isSessionEnded && (
         <div className="max-w-4xl mx-auto px-4 mt-5">
-          <div className="p-4 sm:p-5 rounded-2xl bg-gradient-to-r from-red-500/15 via-dark-850 to-gold-500/15 border border-red-500/40 shadow-xl flex flex-col sm:flex-row sm:items-center justify-between gap-4 animate-fade-in">
-            <div className="flex items-center space-x-3.5">
-              <div className="w-10 h-10 rounded-2xl bg-red-500/20 text-red-400 flex items-center justify-center border border-red-500/30 shrink-0">
-                <AlertCircle className="w-5 h-5 animate-pulse" />
+          <div className="p-5 sm:p-6 rounded-3xl bg-gradient-to-r from-red-950/40 via-dark-900 to-amber-950/40 border-2 border-amber-500/40 shadow-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-4 animate-fade-in">
+            <div className="flex items-center space-x-4">
+              <div className="w-12 h-12 rounded-2xl bg-amber-500/20 text-amber-400 flex items-center justify-center border border-amber-500/30 shrink-0 shadow-gold-glow">
+                <QrCode className="w-6 h-6 animate-pulse" />
               </div>
               <div>
-                <h4 className="font-serif font-bold text-sm sm:text-base text-white flex items-center space-x-2">
-                  <span>Table #{tableNumber} Session Ended</span>
-                </h4>
-                <p className="text-xs text-slate-300 mt-1 max-w-md leading-relaxed">
+                <div className="flex items-center space-x-2">
+                  <h4 className="font-serif font-bold text-base text-white">
+                    Table #{tableNumber || initialTable || rawInitialTable || 'Dining'} Session Ended
+                  </h4>
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/15 text-amber-300 border border-amber-500/30">
+                    Bill Settled
+                  </span>
+                </div>
+                <p className="text-xs text-slate-300 mt-1 max-w-lg leading-relaxed">
                   {sessionEndedMessage ||
-                    `Staff has settled and cleared Table #${tableNumber}. This dining session has officially closed. To place another order, please scan your table QR code again.`}
+                    `Staff has settled and cleared Table #${tableNumber || initialTable || rawInitialTable}. This dining session has officially closed. To place a new order, please scan your table QR code again.`}
                 </p>
               </div>
             </div>
             <button
               onClick={() => setIsQRScannerOpen(true)}
-              className="px-5 py-2.5 rounded-xl gold-btn text-black text-xs font-black flex items-center justify-center space-x-2 shadow-gold-glow shrink-0 hover:scale-105 transition"
+              className="px-6 py-3 rounded-2xl gold-btn text-black text-xs font-black flex items-center justify-center space-x-2 shadow-gold-glow shrink-0 hover:scale-105 transition"
             >
               <QrCode className="w-4 h-4" />
-              <span>Scan Table QR</span>
+              <span>Scan Table QR Code</span>
             </button>
           </div>
         </div>
@@ -1588,30 +1687,48 @@ function CustomerMenuContent() {
                       <label className="block text-xs font-bold text-slate-300">
                         {t.tableNumber} <span className="text-gold-400 font-bold">*</span>
                       </label>
-                      {initialTable && (
+                      {tableNumber && !isSessionEnded && (
                         <span className="text-[10px] font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-md border border-emerald-500/20 flex items-center space-x-1">
                           <Check className="w-2.5 h-2.5" />
                           <span>Verified Table QR</span>
                         </span>
                       )}
                     </div>
-                    <input
-                      type="text"
-                      required
-                      placeholder="e.g. 1, 5, Terrace 2"
-                      value={tableNumber}
-                      readOnly={!!initialTable || !!editingOrder}
-                      disabled={!!editingOrder}
-                      onChange={(e) => setTableNumber(e.target.value)}
-                      className={`w-full px-3.5 py-2.5 rounded-xl text-xs text-white focus:outline-none transition ${
-                        initialTable
-                          ? 'border border-emerald-500/40 bg-emerald-950/20 text-emerald-300 cursor-not-allowed font-bold'
-                          : 'bg-dark-900 border border-surface-border focus:border-gold-500'
-                      } disabled:opacity-60`}
-                    />
-                    {initialTable && (
+                    {tableNumber && !isSessionEnded ? (
+                      <div className="flex items-center justify-between px-3.5 py-2.5 rounded-xl border border-emerald-500/40 bg-emerald-950/20 text-emerald-300 text-xs font-bold">
+                        <div className="flex items-center space-x-2">
+                          <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                          <span>
+                            {tableNumber.toLowerCase().startsWith('room')
+                              ? `Rooms #${tableNumber.replace(/^room\s*#?/i, '')}`
+                              : `Table #${tableNumber.replace(/^#/, '')}`}
+                          </span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setIsQRScannerOpen(true)}
+                          className="text-[11px] text-gold-400 hover:text-gold-300 underline font-semibold ml-2"
+                        >
+                          Change Table
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => setIsQRScannerOpen(true)}
+                        className="w-full px-3.5 py-2.5 rounded-xl border-2 border-dashed border-gold-500/50 bg-gold-500/10 hover:bg-gold-500/20 text-gold-300 text-xs font-bold flex items-center justify-center space-x-2 transition"
+                      >
+                        <QrCode className="w-4 h-4 text-gold-400 animate-pulse" />
+                        <span>Scan Table QR Code (Required)</span>
+                      </button>
+                    )}
+                    {tableNumber && !isSessionEnded ? (
                       <span className="text-[10px] text-emerald-400/80 mt-1 block">
-                        Locked to Table #{initialTable} from your scanned table stand.
+                        Locked to Table #{tableNumber} from your scanned table stand.
+                      </span>
+                    ) : (
+                      <span className="text-[10px] text-amber-400/90 mt-1 block">
+                        Orders must be placed from a verified table stand.
                       </span>
                     )}
                   </div>
@@ -1653,30 +1770,41 @@ function CustomerMenuContent() {
                 </span>
               </div>
 
-              <button
-                onClick={handlePlaceOrder}
-                disabled={isSubmitting || cart.length === 0}
-                className="w-full py-3.5 rounded-2xl gold-btn text-xs sm:text-sm font-extrabold flex items-center justify-center space-x-2 disabled:opacity-50 shadow-gold-glow text-black"
-              >
-                {isSubmitting ? (
-                  <span>{editingOrder ? 'Updating Order...' : t.placingOrder}</span>
-                ) : editingOrder ? (
-                  <>
-                    <span>Save Order Changes</span>
-                    <Check className="w-4 h-4" />
-                  </>
-                ) : activeTableSession?.hasActiveOrder ? (
-                  <>
-                    <span>Submit Additional Order (Round {activeTableSession.count + 1})</span>
-                    <ArrowRight className="w-4 h-4" />
-                  </>
-                ) : (
-                  <>
-                    <span>{t.placeOrder}</span>
-                    <ArrowRight className="w-4 h-4" />
-                  </>
-                )}
-              </button>
+              {isSessionEnded || !tableNumber.trim() ? (
+                <button
+                  type="button"
+                  onClick={() => setIsQRScannerOpen(true)}
+                  className="w-full py-3.5 rounded-2xl gold-btn text-xs sm:text-sm font-extrabold flex items-center justify-center space-x-2 shadow-gold-glow text-black hover:scale-[1.01] transition"
+                >
+                  <QrCode className="w-4 h-4" />
+                  <span>Scan Table QR Code to Place Order</span>
+                </button>
+              ) : (
+                <button
+                  onClick={handlePlaceOrder}
+                  disabled={isSubmitting || cart.length === 0}
+                  className="w-full py-3.5 rounded-2xl gold-btn text-xs sm:text-sm font-extrabold flex items-center justify-center space-x-2 disabled:opacity-50 shadow-gold-glow text-black"
+                >
+                  {isSubmitting ? (
+                    <span>{editingOrder ? 'Updating Order...' : t.placingOrder}</span>
+                  ) : editingOrder ? (
+                    <>
+                      <span>Save Order Changes</span>
+                      <Check className="w-4 h-4" />
+                    </>
+                  ) : activeTableSession?.hasActiveOrder ? (
+                    <>
+                      <span>Submit Additional Order (Round {activeTableSession.count + 1})</span>
+                      <ArrowRight className="w-4 h-4" />
+                    </>
+                  ) : (
+                    <>
+                      <span>{t.placeOrder}</span>
+                      <ArrowRight className="w-4 h-4" />
+                    </>
+                  )}
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -1844,10 +1972,12 @@ function CustomerMenuContent() {
           const now = new Date().toISOString();
           setSessionCreatedAt(now);
           try {
+            sessionStorage.removeItem(`table_session_ended_${slug}_${freshTable}`);
             sessionStorage.setItem(`session_time_${slug}_${freshTable}`, now);
+            localStorage.setItem(`last_table_${slug}`, freshTable);
           } catch {}
           showToast(`Fresh dining session activated for Table #${freshTable}!`);
-          router.push(`/menu/${slug}?table=${encodeURIComponent(freshTable)}&qr=1&scan=true`);
+          router.push(`/menu/${slug}?table=${encodeURIComponent(freshTable)}&qr=1&scan=true&t=${Date.now()}`);
         }}
       />
     </div>

@@ -362,6 +362,16 @@ export default function ReceiptModal({
               <span className="text-stone-500">Order Status:</span>
               <span className="uppercase font-bold text-stone-900">{order.status}</span>
             </div>
+            {order.paymentMethod && (
+              <div className="flex justify-between">
+                <span className="text-stone-500">Payment Mode:</span>
+                <span className="uppercase font-bold text-stone-900">
+                  {String(order.paymentMethod || '').toLowerCase().includes('online')
+                    ? 'Online (Fonepay/QR)'
+                    : 'Cash'}
+                </span>
+              </div>
+            )}
           </div>
 
           {/* Items Table */}
@@ -431,6 +441,17 @@ export default function ReceiptModal({
                 {formatNPR(finalTotal)}
               </span>
             </div>
+
+            {order.paymentMethod && (
+              <div className="flex justify-between items-center text-[10px] text-stone-600 pt-1 border-t border-stone-200">
+                <span>PAID VIA:</span>
+                <span className="font-bold uppercase tracking-wider text-stone-900">
+                  {String(order.paymentMethod || '').toLowerCase().includes('online')
+                    ? 'Online Payment (QR/Card)'
+                    : 'Cash Payment'}
+                </span>
+              </div>
+            )}
           </div>
 
           {/* Thermal Slip Footer */}

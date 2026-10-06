@@ -58,6 +58,7 @@ export async function GET(
             totalAmount: historical.totalAmount,
             discountAmount: historical.discountAmount,
             status: 'done',
+            paymentMethod: (historical as any).paymentMethod || 'cash',
             notes: historical.notes,
             createdAt: historical.orderDate,
             updatedAt: historical.settledAt,

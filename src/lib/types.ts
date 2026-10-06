@@ -51,6 +51,7 @@ export interface OrderData {
   items: string; // JSON string or parsed
   totalAmount: number;
   discountAmount?: number;
+  paymentMethod?: 'cash' | 'online' | string;
   status: 'received' | 'in_progress' | 'done' | 'cancelled';
   notes?: string | null;
   createdAt: string | Date;

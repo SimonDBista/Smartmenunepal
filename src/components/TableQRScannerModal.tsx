@@ -144,10 +144,18 @@ export default function TableQRScannerModal({
       setScannedResult(parsedTable || 'Table QR Verified');
 
       setTimeout(() => {
+        if (typeof window !== 'undefined' && targetSlug && parsedTable) {
+          try {
+            sessionStorage.removeItem(`table_session_ended_${targetSlug}_${parsedTable}`);
+            sessionStorage.setItem(`session_time_${targetSlug}_${parsedTable}`, new Date().toISOString());
+            localStorage.setItem(`last_table_${targetSlug}`, parsedTable);
+          } catch {}
+        }
+
         if (onScanSuccess) {
           onScanSuccess(parsedTable, rawValue);
         } else if (targetSlug) {
-          router.push(`/menu/${targetSlug}?table=${encodeURIComponent(parsedTable)}&qr=1&scan=true`);
+          router.push(`/menu/${targetSlug}?table=${encodeURIComponent(parsedTable)}&qr=1&scan=true&t=${Date.now()}`);
         }
         onClose();
       }, 900);
@@ -220,18 +228,10 @@ export default function TableQRScannerModal({
           </div>
         </div>
 
-        {/* Action Button if camera error or manual fallback */}
-        {hotelSlug && expectedTableNumber && (
-          <button
-            onClick={() => {
-              onClose();
-              router.push(`/menu/${hotelSlug}?table=${encodeURIComponent(expectedTableNumber)}&qr=1&scan=true`);
-            }}
-            className="w-full py-2.5 rounded-xl dark-btn text-xs font-bold text-gold-400 hover:text-white flex items-center justify-center space-x-1.5 transition"
-          >
-            <span>I Have Rescanned Table #{expectedTableNumber}</span>
-          </button>
-        )}
+        {/* Helper Note */}
+        <p className="text-[11px] text-slate-500">
+          Digital Table Verification • Restro Smart QR
+        </p>
       </div>
     </div>
   );

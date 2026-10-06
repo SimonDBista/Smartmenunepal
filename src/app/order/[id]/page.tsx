@@ -91,13 +91,17 @@ function OrderTrackingContent() {
         if (data.isSettled || data.sessionEnded) {
           setIsTableSettled(true);
           // Invalidate stored session in client storage
-          if (data.order?.hotel?.slug) {
+          if (data.order?.hotel?.slug && data.order?.tableNumber) {
             try {
               localStorage.removeItem(`last_order_${data.order.hotel.slug}`);
               localStorage.removeItem(`last_table_${data.order.hotel.slug}`);
               localStorage.removeItem(
                 `session_token_${data.order.hotel.slug}_${data.order.tableNumber}`
               );
+              sessionStorage.removeItem(`session_time_${data.order.hotel.slug}_${data.order.tableNumber}`);
+              sessionStorage.setItem(`table_session_ended_${data.order.hotel.slug}_${data.order.tableNumber}`, 'true');
+              sessionStorage.setItem(`last_settled_table_${data.order.hotel.slug}`, data.order.tableNumber);
+              localStorage.setItem(`table_settled_at_${data.order.hotel.slug}_${data.order.tableNumber}`, data.lastSettledAt || new Date().toISOString());
             } catch {}
           }
         }
@@ -165,29 +169,49 @@ function OrderTrackingContent() {
 
     const handleOrderSettled = (data: any) => {
       setIsTableSettled(true);
-      setOrder((prev) => (prev ? { ...prev, status: 'done' as any } : prev));
-      if (order?.hotel?.slug) {
+      setOrder((prev) =>
+        prev
+          ? {
+              ...prev,
+              status: 'done' as any,
+              paymentMethod: data?.paymentMethod || prev.paymentMethod || 'cash',
+            }
+          : prev
+      );
+      const targetSlug = order?.hotel?.slug;
+      const targetTable = data?.tableNumber || order?.tableNumber;
+      if (targetSlug && targetTable) {
         try {
-          localStorage.removeItem(`last_order_${order.hotel.slug}`);
-          localStorage.removeItem(`last_table_${order.hotel.slug}`);
+          localStorage.removeItem(`last_order_${targetSlug}`);
+          localStorage.removeItem(`last_table_${targetSlug}`);
           localStorage.removeItem(
-            `session_token_${order.hotel.slug}_${order.tableNumber}`
+            `session_token_${targetSlug}_${targetTable}`
           );
+          sessionStorage.removeItem(`session_time_${targetSlug}_${targetTable}`);
+          sessionStorage.setItem(`table_session_ended_${targetSlug}_${targetTable}`, 'true');
+          sessionStorage.setItem(`last_settled_table_${targetSlug}`, targetTable);
+          localStorage.setItem(`table_settled_at_${targetSlug}_${targetTable}`, data?.settledAt || new Date().toISOString());
         } catch {}
       }
       playChime('success');
     };
 
     const handleTableSessionEnded = (data: any) => {
+      const targetSlug = order?.hotel?.slug;
+      const endedTbl = data?.tableNumber || order?.tableNumber;
       if (!order?.tableNumber || String(data.tableNumber).trim() === String(order.tableNumber).trim()) {
         setIsTableSettled(true);
-        if (order?.hotel?.slug) {
+        if (targetSlug && endedTbl) {
           try {
-            localStorage.removeItem(`last_order_${order.hotel.slug}`);
-            localStorage.removeItem(`last_table_${order.hotel.slug}`);
+            localStorage.removeItem(`last_order_${targetSlug}`);
+            localStorage.removeItem(`last_table_${targetSlug}`);
             localStorage.removeItem(
-              `session_token_${order.hotel.slug}_${order.tableNumber}`
+              `session_token_${targetSlug}_${endedTbl}`
             );
+            sessionStorage.removeItem(`session_time_${targetSlug}_${endedTbl}`);
+            sessionStorage.setItem(`table_session_ended_${targetSlug}_${endedTbl}`, 'true');
+            sessionStorage.setItem(`last_settled_table_${targetSlug}`, endedTbl);
+            localStorage.setItem(`table_settled_at_${targetSlug}_${endedTbl}`, data?.settledAt || new Date().toISOString());
           } catch {}
         }
       }
@@ -348,19 +372,26 @@ function OrderTrackingContent() {
       {/* Top Header Navigation */}
       <header className="sticky top-0 z-30 bg-dark-950/80 backdrop-blur-xl border-b border-white/[0.08] px-4 py-3.5 flex items-center justify-between">
         <Link
-          href={`/menu/${order.hotel?.slug || ''}`}
+          href={
+            order.hotel?.slug
+              ? isTableSettled
+                ? `/menu/${order.hotel.slug}`
+                : `/menu/${order.hotel.slug}?table=${encodeURIComponent(order.tableNumber)}&qr=1`
+              : '#'
+          }
           className="flex items-center space-x-2 text-xs font-bold text-slate-300 hover:text-gold-400 transition"
         >
           <ArrowLeft className="w-4 h-4" />
-          <span>Back to Menu</span>
+          <span>{isTableSettled ? 'Browse Menu' : 'Back to Menu'}</span>
         </Link>
 
         <div className="flex items-center space-x-2 px-3 py-1 rounded-full bg-dark-900 border border-gold-500/30">
-          <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+          <span className={`w-2 h-2 rounded-full ${isTableSettled ? 'bg-amber-400' : 'bg-emerald-400'} animate-pulse`} />
           <span className="text-xs font-serif font-bold text-gold-300">
             {order.tableNumber?.toLowerCase().startsWith('room')
               ? `Rooms #${order.tableNumber.replace(/^room\s*#?/i, '')}`
               : `Table #${order.tableNumber}`}
+            {isTableSettled && ' (Closed)'}
           </span>
         </div>
       </header>
@@ -577,21 +608,44 @@ function OrderTrackingContent() {
               {/* Customer Actions: Edit / Cancel / Add More Dishes / Rescan when settled */}
               <div className="mt-5 pt-4 border-t border-white/[0.08] flex flex-wrap items-center gap-2.5">
                 {isTableSettled ? (
-                  <div className="w-full p-4 rounded-2xl bg-gradient-to-r from-emerald-500/10 via-dark-900 to-gold-500/10 border border-emerald-500/30 text-center space-y-3 shadow-lg animate-fade-in">
+                  <div className="w-full p-5 sm:p-6 rounded-3xl bg-gradient-to-r from-emerald-950/40 via-dark-900 to-gold-950/40 border-2 border-emerald-500/40 text-center space-y-4 shadow-2xl animate-fade-in">
                     <div className="flex items-center justify-center space-x-2 text-emerald-400 font-bold text-xs uppercase tracking-wider">
-                      <CheckCircle2 className="w-4 h-4" />
+                      <CheckCircle2 className="w-4 h-4 animate-pulse" />
                       <span>Table Bill Settled & Session Ended</span>
                     </div>
-                    <p className="text-xs text-slate-300 leading-relaxed max-w-sm mx-auto">
-                      Staff has settled and cleared Table #{order.tableNumber}. Thank you for dining with us! This session has closed. To place another order, please scan your table QR code again.
-                    </p>
-                    <button
-                      onClick={() => setIsQRScannerOpen(true)}
-                      className="w-full py-2.5 rounded-xl gold-btn text-black text-xs font-black flex items-center justify-center space-x-2 shadow-gold-glow hover:scale-[1.01] transition"
-                    >
-                      <QrCode className="w-4 h-4" />
-                      <span>Scan Table QR to Order Again</span>
-                    </button>
+                    <div className="space-y-1">
+                      <h4 className="font-serif font-extrabold text-lg sm:text-xl text-white">
+                        Table #{order.tableNumber} Session Closed
+                      </h4>
+                      <p className="text-xs text-slate-300 leading-relaxed max-w-sm mx-auto">
+                        Staff has settled and cleared your table. Thank you for dining with us! To start a new dining session or place a new order, please scan your table QR code.
+                      </p>
+                    </div>
+                    {order.paymentMethod && (
+                      <div className="inline-flex items-center space-x-2 px-3.5 py-1.5 rounded-xl bg-white/5 border border-white/10 text-xs text-slate-200">
+                        <span className="text-slate-400">Payment Settled:</span>
+                        <span className="font-bold text-emerald-400 uppercase">
+                          {String(order.paymentMethod || '').toLowerCase().includes('online')
+                            ? 'Online Payment'
+                            : 'Cash'}
+                        </span>
+                      </div>
+                    )}
+                    <div className="pt-2 flex flex-col sm:flex-row gap-2.5">
+                      <button
+                        onClick={() => setIsQRScannerOpen(true)}
+                        className="flex-1 py-3 rounded-2xl gold-btn text-black text-xs font-black flex items-center justify-center space-x-2 shadow-gold-glow hover:scale-[1.01] transition"
+                      >
+                        <QrCode className="w-4 h-4" />
+                        <span>Scan Table QR for New Order</span>
+                      </button>
+                      <Link
+                        href={`/menu/${order.hotel?.slug || ''}`}
+                        className="py-3 px-4 rounded-2xl dark-btn text-slate-300 hover:text-white text-xs font-bold flex items-center justify-center space-x-1.5 transition"
+                      >
+                        <span>Browse Menu</span>
+                      </Link>
+                    </div>
                   </div>
                 ) : (
                   <>
@@ -874,6 +928,17 @@ function OrderTrackingContent() {
         onClose={() => setIsQRScannerOpen(false)}
         hotelSlug={order?.hotel?.slug}
         expectedTableNumber={order?.tableNumber}
+        onScanSuccess={(scannedTbl) => {
+          const freshTable = scannedTbl || order?.tableNumber;
+          if (order?.hotel?.slug && freshTable) {
+            try {
+              sessionStorage.removeItem(`table_session_ended_${order.hotel.slug}_${freshTable}`);
+              sessionStorage.setItem(`session_time_${order.hotel.slug}_${freshTable}`, new Date().toISOString());
+              localStorage.setItem(`last_table_${order.hotel.slug}`, freshTable);
+            } catch {}
+            router.push(`/menu/${order.hotel.slug}?table=${encodeURIComponent(freshTable)}&qr=1&scan=true&t=${Date.now()}`);
+          }
+        }}
       />
     </div>
   );

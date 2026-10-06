@@ -37,10 +37,23 @@ export async function GET(request: NextRequest) {
         tableNumber: { in: tableCandidates },
       },
       select: {
+        id: true,
         lastSettledAt: true,
         sessionToken: true,
       },
     });
+
+    let currentSessionToken = table?.sessionToken || null;
+    if (table && !currentSessionToken) {
+      currentSessionToken =
+        'sess_' + Date.now() + '_' + Math.random().toString(36).substring(2, 9);
+      try {
+        await prisma.restaurantTable.update({
+          where: { id: table.id },
+          data: { sessionToken: currentSessionToken },
+        });
+      } catch {}
+    }
 
     // Look for active orders in the last 12 hours (and after last settlement if settled)
     const twelveHoursAgo = new Date(Date.now() - 12 * 60 * 60 * 1000);
@@ -70,6 +83,7 @@ export async function GET(request: NextRequest) {
         activeOrders: [],
         count: 0,
         lastSettledAt: table?.lastSettledAt || null,
+        sessionToken: currentSessionToken,
       });
     }
 
@@ -81,6 +95,7 @@ export async function GET(request: NextRequest) {
       latestOrderId: latestOrder.id,
       activeOrders,
       lastSettledAt: table?.lastSettledAt || null,
+      sessionToken: currentSessionToken,
     });
   } catch (error) {
     console.error('Check active order error:', error);

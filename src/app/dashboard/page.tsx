@@ -18,6 +18,8 @@ import {
   Volume2,
   ArrowRight,
   Archive,
+  Banknote,
+  Smartphone,
 } from 'lucide-react';
 import { OrderData, OrderItem } from '@/lib/types';
 import { formatNPR, formatDate, formatTime } from '@/lib/utils';
@@ -39,7 +41,10 @@ export default function HotelOrdersDashboard() {
     isOpen: boolean;
     tableNumber?: string;
     count: number;
+    amount?: number;
+    customerName?: string;
   } | null>(null);
+  const [settlePaymentMethod, setSettlePaymentMethod] = useState<'cash' | 'online'>('cash');
   const [isClearing, setIsClearing] = useState(false);
 
   const { socket } = useSocket();
@@ -153,7 +158,7 @@ export default function HotelOrdersDashboard() {
     }
   };
 
-  const handleClearOrders = async (tableNumber?: string) => {
+  const handleClearOrders = async (tableNumber?: string, paymentMethod: 'cash' | 'online' = 'cash') => {
     try {
       setIsClearing(true);
       const res = await fetch('/api/hotel/orders/clear', {
@@ -162,6 +167,7 @@ export default function HotelOrdersDashboard() {
         body: JSON.stringify({
           tableNumber: tableNumber || undefined,
           allCompleted: !tableNumber,
+          paymentMethod,
         }),
       });
       const data = await res.json();
@@ -308,7 +314,17 @@ export default function HotelOrdersDashboard() {
         <div className="flex items-center space-x-2.5">
           {doneCount > 0 && (
             <button
-              onClick={() => setClearConfirmModal({ isOpen: true, count: doneCount })}
+              onClick={() => {
+                const totalDoneAmount = orders
+                  .filter((o) => o.status === 'done')
+                  .reduce((sum, o) => sum + o.totalAmount, 0);
+                setSettlePaymentMethod('cash');
+                setClearConfirmModal({
+                  isOpen: true,
+                  count: doneCount,
+                  amount: totalDoneAmount,
+                });
+              }}
               className="px-4 py-2.5 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 hover:bg-emerald-500/25 text-xs font-bold flex items-center space-x-1.5 transition shadow-sm"
               title="Settle bills and clear finished orders from the live kitchen screen"
             >
@@ -677,13 +693,16 @@ export default function HotelOrdersDashboard() {
 
                   {group.allDone && (
                     <button
-                      onClick={() =>
+                      onClick={() => {
+                        setSettlePaymentMethod('cash');
                         setClearConfirmModal({
                           isOpen: true,
                           tableNumber: group.tableNumber,
                           count: group.orders.length,
-                        })
-                      }
+                          amount: group.totalAmount,
+                          customerName: group.customerName,
+                        });
+                      }}
                       className="px-3.5 py-2.5 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 hover:bg-emerald-500/25 text-xs font-bold flex items-center space-x-1.5 transition shrink-0"
                       title="Settle bill and clear Table from active feed"
                     >
@@ -709,45 +728,143 @@ export default function HotelOrdersDashboard() {
       {/* Settle & Clear Orders Confirmation Modal */}
       {clearConfirmModal?.isOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fade-in">
-          <div className="w-full max-w-md bg-dark-900 border border-white/10 rounded-3xl p-6 text-center shadow-2xl space-y-4">
+          <div className="w-full max-w-lg bg-dark-900 border border-white/10 rounded-3xl p-6 text-center shadow-2xl space-y-4">
             <div className="w-14 h-14 rounded-2xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center mx-auto border border-emerald-500/30">
               <Archive className="w-7 h-7" />
             </div>
             <div>
-              <h3 className="text-lg font-serif font-bold text-white">
+              <h3 className="text-xl font-serif font-bold text-white">
                 {clearConfirmModal.tableNumber
-                  ? `Settle & Clear Table #${clearConfirmModal.tableNumber}?`
-                  : `Settle All Completed Orders (${clearConfirmModal.count})?`}
+                  ? `Settle & Clear Table #${clearConfirmModal.tableNumber}`
+                  : `Settle All Completed Orders (${clearConfirmModal.count})`}
               </h3>
-              <p className="text-xs text-slate-300 mt-2 leading-relaxed">
-                This will remove the completed orders from your live kitchen & table screen.
+              {clearConfirmModal.customerName && (
+                <p className="text-xs text-gold-400 font-medium mt-1">
+                  Guest: {clearConfirmModal.customerName}
+                </p>
+              )}
+              <p className="text-xs text-slate-300 mt-1 leading-relaxed">
+                Choose the payment method before archiving to your permanent sales ledger.
               </p>
-              <div className="mt-3.5 p-3.5 bg-dark-950 rounded-2xl border border-gold-500/20 text-[11px] text-gold-300/90 text-left flex items-start space-x-2.5">
-                <Sparkles className="w-4 h-4 text-gold-400 shrink-0 mt-0.5" />
-                <span>
-                  <strong>Financial History Safe:</strong> All revenue, item breakdowns, and billing amounts are permanently recorded in your <strong>Sales & Analytics Reports</strong> (Last 7 Days, Last Month, All Time).
+            </div>
+
+            {/* Bill Amount Pill */}
+            {clearConfirmModal.amount !== undefined && (
+              <div className="flex items-center justify-between px-4 py-2.5 rounded-2xl bg-dark-950 border border-white/10 text-xs">
+                <span className="text-slate-400 font-medium">Total Bill Amount:</span>
+                <span className="font-serif font-black text-emerald-400 text-base">
+                  {formatNPR(clearConfirmModal.amount)}
                 </span>
               </div>
+            )}
+
+            {/* Payment Method Selector */}
+            <div className="text-left space-y-2 pt-1">
+              <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-300">
+                Payment Method Received <span className="text-rose-400">*</span>
+              </label>
+
+              <div className="grid grid-cols-2 gap-3">
+                {/* Cash Option */}
+                <button
+                  type="button"
+                  onClick={() => setSettlePaymentMethod('cash')}
+                  className={`p-3.5 rounded-2xl border text-left transition-all relative flex flex-col justify-between ${
+                    settlePaymentMethod === 'cash'
+                      ? 'bg-emerald-500/15 border-emerald-500 text-white shadow-lg shadow-emerald-500/10 ring-1 ring-emerald-500'
+                      : 'bg-dark-950/70 border-white/10 text-slate-400 hover:border-white/20 hover:text-slate-200'
+                  }`}
+                >
+                  <div className="flex items-center justify-between mb-2">
+                    <div
+                      className={`w-8 h-8 rounded-xl flex items-center justify-center ${
+                        settlePaymentMethod === 'cash'
+                          ? 'bg-emerald-500/20 text-emerald-400'
+                          : 'bg-white/5 text-slate-400'
+                      }`}
+                    >
+                      <Banknote className="w-4 h-4" />
+                    </div>
+                    {settlePaymentMethod === 'cash' && (
+                      <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                    )}
+                  </div>
+                  <div>
+                    <span className="text-xs font-bold block text-white">Cash (नगद)</span>
+                    <span className="text-[10px] text-slate-400 block mt-0.5 leading-tight">
+                      Received in counter cash drawer
+                    </span>
+                  </div>
+                </button>
+
+                {/* Online Option */}
+                <button
+                  type="button"
+                  onClick={() => setSettlePaymentMethod('online')}
+                  className={`p-3.5 rounded-2xl border text-left transition-all relative flex flex-col justify-between ${
+                    settlePaymentMethod === 'online'
+                      ? 'bg-cyan-500/15 border-cyan-500 text-white shadow-lg shadow-cyan-500/10 ring-1 ring-cyan-500'
+                      : 'bg-dark-950/70 border-white/10 text-slate-400 hover:border-white/20 hover:text-slate-200'
+                  }`}
+                >
+                  <div className="flex items-center justify-between mb-2">
+                    <div
+                      className={`w-8 h-8 rounded-xl flex items-center justify-center ${
+                        settlePaymentMethod === 'online'
+                          ? 'bg-cyan-500/20 text-cyan-400'
+                          : 'bg-white/5 text-slate-400'
+                      }`}
+                    >
+                      <Smartphone className="w-4 h-4" />
+                    </div>
+                    {settlePaymentMethod === 'online' && (
+                      <CheckCircle2 className="w-4 h-4 text-cyan-400" />
+                    )}
+                  </div>
+                  <div>
+                    <span className="text-xs font-bold block text-white">Online Payment</span>
+                    <span className="text-[10px] text-slate-400 block mt-0.5 leading-tight">
+                      Fonepay, eSewa, QR, or Card
+                    </span>
+                  </div>
+                </button>
+              </div>
             </div>
+
+            <div className="p-3 bg-dark-950 rounded-2xl border border-gold-500/20 text-[11px] text-gold-300/90 text-left flex items-start space-x-2.5">
+              <Sparkles className="w-4 h-4 text-gold-400 shrink-0 mt-0.5" />
+              <span>
+                <strong>Order Record Saved:</strong> Payment method ({settlePaymentMethod.toUpperCase()}) will be stored in your <strong>Daily Order Records & Financial Reports</strong>.
+              </span>
+            </div>
+
             <div className="flex items-center space-x-2.5 pt-2">
               <button
                 onClick={() => setClearConfirmModal(null)}
                 disabled={isClearing}
-                className="flex-1 py-2.5 rounded-xl dark-btn text-xs font-semibold text-slate-300"
+                className="flex-1 py-3 rounded-xl dark-btn text-xs font-semibold text-slate-300"
               >
                 Keep on Screen
               </button>
               <button
-                onClick={() => handleClearOrders(clearConfirmModal.tableNumber)}
+                onClick={() =>
+                  handleClearOrders(clearConfirmModal.tableNumber, settlePaymentMethod)
+                }
                 disabled={isClearing}
-                className="flex-1 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-black text-xs font-extrabold transition shadow-gold-glow flex items-center justify-center space-x-1.5"
+                className={`flex-1 py-3 rounded-xl text-black text-xs font-extrabold transition shadow-gold-glow flex items-center justify-center space-x-1.5 ${
+                  settlePaymentMethod === 'online'
+                    ? 'bg-cyan-400 hover:bg-cyan-300'
+                    : 'bg-emerald-500 hover:bg-emerald-400'
+                }`}
               >
                 {isClearing ? (
                   <span>Clearing...</span>
                 ) : (
                   <>
                     <CheckCircle2 className="w-4 h-4" />
-                    <span>Confirm & Settle</span>
+                    <span>
+                      Settle via {settlePaymentMethod === 'online' ? 'Online' : 'Cash'}
+                    </span>
                   </>
                 )}
               </button>

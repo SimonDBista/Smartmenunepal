@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
 import { getHotelAuth } from '@/lib/auth';
 
+export const dynamic = 'force-dynamic';
+
 export async function POST(request: NextRequest) {
   try {
     const auth = getHotelAuth(request);
@@ -10,7 +12,9 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json().catch(() => ({}));
-    const { tableNumber, allCompleted } = body;
+    const { tableNumber, allCompleted, paymentMethod } = body;
+    const rawMethod = paymentMethod ? String(paymentMethod).trim().toLowerCase() : '';
+    const selectedPaymentMethod = rawMethod.includes('online') ? 'online payment' : 'cash';
 
     const whereClause: any = {
       hotelId: auth.hotelId,
@@ -52,6 +56,7 @@ export async function POST(request: NextRequest) {
         customerPhone: o.customerPhone || null,
         totalAmount: o.totalAmount,
         discountAmount: (o as any).discountAmount || 0,
+        paymentMethod: selectedPaymentMethod,
         items: typeof o.items === 'string' ? o.items : JSON.stringify(o.items),
         notes: o.notes || null,
         orderDate:
@@ -81,21 +86,40 @@ export async function POST(request: NextRequest) {
       if (!inserted) {
         // Direct SQLite insertion fallback
         for (const s of salesData) {
-          await prisma.$executeRawUnsafe(
-            `INSERT INTO HistoricalSale (id, hotelId, orderId, tableNumber, customerName, customerPhone, totalAmount, discountAmount, items, notes, orderDate, settledAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-            s.id,
-            s.hotelId,
-            s.orderId,
-            s.tableNumber,
-            s.customerName,
-            s.customerPhone,
-            s.totalAmount,
-            s.discountAmount,
-            s.items,
-            s.notes,
-            s.orderDate,
-            s.settledAt
-          );
+          try {
+            await prisma.$executeRawUnsafe(
+              `INSERT INTO HistoricalSale (id, hotelId, orderId, tableNumber, customerName, customerPhone, totalAmount, discountAmount, paymentMethod, items, notes, orderDate, settledAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+              s.id,
+              s.hotelId,
+              s.orderId,
+              s.tableNumber,
+              s.customerName,
+              s.customerPhone,
+              s.totalAmount,
+              s.discountAmount,
+              s.paymentMethod || selectedPaymentMethod,
+              s.items,
+              s.notes,
+              new Date(s.orderDate).getTime(),
+              new Date(s.settledAt).getTime()
+            );
+          } catch (colErr) {
+            await prisma.$executeRawUnsafe(
+              `INSERT INTO HistoricalSale (id, hotelId, orderId, tableNumber, customerName, customerPhone, totalAmount, discountAmount, items, notes, orderDate, settledAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+              s.id,
+              s.hotelId,
+              s.orderId,
+              s.tableNumber,
+              s.customerName,
+              s.customerPhone,
+              s.totalAmount,
+              s.discountAmount,
+              s.items,
+              s.notes,
+              new Date(s.orderDate).getTime(),
+              new Date(s.settledAt).getTime()
+            );
+          }
         }
       }
       archivedCount = salesData.length;
@@ -143,6 +167,7 @@ export async function POST(request: NextRequest) {
         io.to(`hotel_${auth.hotelId}`).emit('orders_cleared', {
           tableNumber,
           allCompleted: !!allCompleted,
+          paymentMethod: selectedPaymentMethod,
           clearedOrderIds: orderIdsToDelete,
           clearedTables: distinctTableNumbers,
           settledAt: settledAt.toISOString(),
@@ -154,11 +179,13 @@ export async function POST(request: NextRequest) {
             tableNumber: tbl,
             hotelId: auth.hotelId,
             settledAt: settledAt.toISOString(),
+            sessionEnded: true,
           });
           io.to(`table_${tbl}`).emit('table_session_ended', {
             tableNumber: tbl,
             hotelId: auth.hotelId,
             settledAt: settledAt.toISOString(),
+            sessionEnded: true,
           });
         }
 
@@ -167,10 +194,13 @@ export async function POST(request: NextRequest) {
           io.to(`order_${ord.id}`).emit('order_settled_and_cleared', {
             orderId: ord.id,
             tableNumber: ord.tableNumber,
+            paymentMethod: selectedPaymentMethod,
             hotelId: auth.hotelId,
             settledAt: settledAt.toISOString(),
+            sessionEnded: true,
           });
         }
+
       }
     } catch (socketErr) {
       console.warn('Socket clear emit error:', socketErr);

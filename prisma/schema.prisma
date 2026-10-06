@@ -71,6 +71,7 @@ model Order {
   items         String        // JSON stringified: [{ id, name, price, quantity, notes }]
   totalAmount   Float
   discountAmount Float        @default(0)
+  paymentMethod String        @default("cash") // "cash" | "online"
   status        String        @default("received") // "received" | "in_progress" | "done" | "cancelled"
   notes         String?
   createdAt     DateTime      @default(now())
@@ -124,6 +125,7 @@ model HistoricalSale {
   customerPhone String?
   totalAmount   Float
   discountAmount Float   @default(0)
+  paymentMethod String   @default("cash") // "cash" | "online"
   items         String   // JSON stringified dishes
   notes         String?
   orderDate     DateTime // original order createdAt

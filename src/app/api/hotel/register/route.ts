@@ -36,26 +36,41 @@ export async function GET(request: NextRequest) {
         status: 'done',
         createdAt: { gte: startOfDay, lte: endOfDay },
       },
-      select: { totalAmount: true },
+      select: { totalAmount: true, paymentMethod: true },
     });
 
-    let historicalSales: Array<{ totalAmount: number }> = [];
+    let historicalSales: Array<{ totalAmount: number; paymentMethod?: string | null }> = [];
     try {
       historicalSales = await prisma.historicalSale.findMany({
         where: {
           hotelId: auth.hotelId,
           orderDate: { gte: startOfDay, lte: endOfDay },
         },
-        select: { totalAmount: true },
+        select: { totalAmount: true, paymentMethod: true },
       });
     } catch {
       // Fallback if historicalSale not available
       historicalSales = [];
     }
 
-    const activeSales = doneOrders.reduce((sum, o) => sum + o.totalAmount, 0);
-    const settledSales = historicalSales.reduce((sum, s) => sum + s.totalAmount, 0);
-    const daySales = activeSales + settledSales;
+    const activeCashSales = doneOrders
+      .filter((o: any) => !String(o.paymentMethod || '').toLowerCase().includes('online'))
+      .reduce((sum, o) => sum + o.totalAmount, 0);
+    const activeOnlineSales = doneOrders
+      .filter((o: any) => String(o.paymentMethod || '').toLowerCase().includes('online'))
+      .reduce((sum, o) => sum + o.totalAmount, 0);
+
+    const settledCashSales = historicalSales
+      .filter((s: any) => !String(s.paymentMethod || '').toLowerCase().includes('online'))
+      .reduce((sum, s) => sum + s.totalAmount, 0);
+    const settledOnlineSales = historicalSales
+      .filter((s: any) => String(s.paymentMethod || '').toLowerCase().includes('online'))
+      .reduce((sum, s) => sum + s.totalAmount, 0);
+
+
+    const cashSales = Math.round(activeCashSales + settledCashSales);
+    const onlineSales = Math.round(activeOnlineSales + settledOnlineSales);
+    const daySales = cashSales + onlineSales;
 
     // 3. Fetch expenses for this date
     const dayExpenses = await prisma.expense.findMany({
@@ -83,7 +98,10 @@ export async function GET(request: NextRequest) {
       expenses,
       closingBalance,
       daySales: income,
+      cashSales,
+      onlineSales,
       totalExpenses: expenses,
+      cashExpenses,
       notes: register?.notes || '',
       isClosed: register?.isClosed || false,
       closedAt: register?.closedAt || null,

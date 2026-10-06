@@ -22,26 +22,44 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Hotel not found' }, { status: 404 });
     }
 
-    // Verify table session validity (prevent ordering from ended/settled sessions)
+    // Verify table session validity (prevent ordering from arbitrary/unscanned tables or ended sessions)
+    const rawTable = String(tableNumber).trim();
+    const cleanTable = rawTable.replace(/^table\s*#?/i, '').replace(/^#+/, '').trim();
+    const tableCandidates = Array.from(
+      new Set([rawTable, cleanTable, `Table ${cleanTable}`, `#${cleanTable}`].filter(Boolean))
+    );
+
     const table = await prisma.restaurantTable.findFirst({
       where: {
         hotelId,
-        tableNumber: String(tableNumber).trim(),
+        tableNumber: { in: tableCandidates },
       },
       select: {
         id: true,
+        tableNumber: true,
         lastSettledAt: true,
         sessionToken: true,
       },
     });
 
-    if (table?.lastSettledAt) {
+    if (!table) {
+      return NextResponse.json(
+        { error: 'Unrecognized table. Please scan the official QR code located on your table stand.' },
+        { status: 400 }
+      );
+    }
+
+    if (table.lastSettledAt) {
       const settledTime = new Date(table.lastSettledAt).getTime();
       const sessionTime = body.sessionCreatedAt ? new Date(body.sessionCreatedAt).getTime() : 0;
       const isFreshScan = !!body.isFreshScan;
+      const clientSessionToken = body.sessionToken ? String(body.sessionToken).trim() : null;
 
-      // Only reject if client explicitly submitted a stale session timestamp created strictly before the bill was settled
-      if (!isFreshScan && sessionTime > 0 && sessionTime < settledTime) {
+      const tokenMatches =
+        table.sessionToken && clientSessionToken && table.sessionToken === clientSessionToken;
+
+      // Reject if session token does not match active table token or timestamp is stale
+      if (!isFreshScan && (!tokenMatches || (sessionTime > 0 && sessionTime <= settledTime))) {
         return NextResponse.json(
           {
             error:

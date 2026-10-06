@@ -14,7 +14,7 @@ export async function PATCH(
 
     const orderId = params.id;
     const body = await request.json();
-    const { status, totalAmount, discountAmount, notes } = body;
+    const { status, totalAmount, discountAmount, notes, paymentMethod } = body;
 
     const updateData: any = {};
 
@@ -35,6 +35,10 @@ export async function PATCH(
 
     if (discountAmount !== undefined) {
       updateData.discountAmount = Math.max(0, parseFloat(String(discountAmount)) || 0);
+    }
+
+    if (paymentMethod !== undefined) {
+      updateData.paymentMethod = String(paymentMethod).trim().toLowerCase() === 'online' ? 'online' : 'cash';
     }
 
     if (notes !== undefined) {

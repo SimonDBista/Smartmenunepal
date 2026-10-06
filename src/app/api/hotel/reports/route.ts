@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
 import { getHotelAuth } from '@/lib/auth';
 
+export const dynamic = 'force-dynamic';
+
 export async function GET(request: NextRequest) {
   try {
     const auth = getHotelAuth(request);
@@ -111,6 +113,23 @@ export async function GET(request: NextRequest) {
 
     const historicalTotal = historicalSales.reduce((sum, s) => sum + s.totalAmount, 0);
     const activeDoneTotal = activeDoneOrders.reduce((sum, o) => sum + o.totalAmount, 0);
+
+    const activeCashTotal = activeDoneOrders
+      .filter((o) => !String((o as any).paymentMethod || '').toLowerCase().includes('online'))
+      .reduce((sum, o) => sum + o.totalAmount, 0);
+    const activeOnlineTotal = activeDoneOrders
+      .filter((o) => String((o as any).paymentMethod || '').toLowerCase().includes('online'))
+      .reduce((sum, o) => sum + o.totalAmount, 0);
+
+    const historicalCashTotal = historicalSales
+      .filter((s) => !String((s as any).paymentMethod || '').toLowerCase().includes('online'))
+      .reduce((sum, s) => sum + s.totalAmount, 0);
+    const historicalOnlineTotal = historicalSales
+      .filter((s) => String((s as any).paymentMethod || '').toLowerCase().includes('online'))
+      .reduce((sum, s) => sum + s.totalAmount, 0);
+
+    const cashRevenue = activeCashTotal + historicalCashTotal;
+    const onlineRevenue = activeOnlineTotal + historicalOnlineTotal;
 
     const activeDiscounts = activeDoneOrders.reduce((sum, o) => sum + ((o as any).discountAmount || 0), 0);
     const historicalDiscounts = historicalSales.reduce((sum, s) => sum + ((s as any).discountAmount || 0), 0);
@@ -230,6 +249,9 @@ export async function GET(request: NextRequest) {
         customerPhone: o.customerPhone || null,
         totalAmount: o.totalAmount,
         discountAmount: (o as any).discountAmount || 0,
+        paymentMethod: String((o as any).paymentMethod || '').toLowerCase().includes('online')
+          ? 'online payment'
+          : 'cash',
         items: typeof o.items === 'string' ? o.items : JSON.stringify(o.items),
         notes: o.notes || null,
         status: o.status,
@@ -243,6 +265,9 @@ export async function GET(request: NextRequest) {
         customerPhone: s.customerPhone || null,
         totalAmount: s.totalAmount,
         discountAmount: (s as any).discountAmount || 0,
+        paymentMethod: String((s as any).paymentMethod || '').toLowerCase().includes('online')
+          ? 'online payment'
+          : 'cash',
         items: typeof s.items === 'string' ? s.items : JSON.stringify(s.items),
         notes: s.notes || null,
         status: 'settled',
@@ -255,6 +280,8 @@ export async function GET(request: NextRequest) {
       summary: {
         totalRevenue: Math.round(totalRevenue),
         grossSales: Math.round(grossSales),
+        cashRevenue: Math.round(cashRevenue),
+        onlineRevenue: Math.round(onlineRevenue),
         totalDiscounts: Math.round(totalDiscounts),
         totalExpenses: Math.round(totalExpenses),
         netProfit,

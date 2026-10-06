@@ -29,6 +29,8 @@ import {
   Search,
   Eye,
   UtensilsCrossed,
+  Banknote,
+  Smartphone,
 } from 'lucide-react';
 import { formatNPR, formatTime, formatDate } from '@/lib/utils';
 import ReceiptModal from '@/components/ReceiptModal';
@@ -42,6 +44,7 @@ export interface OrderRecordItem {
   customerPhone?: string | null;
   totalAmount: number;
   discountAmount: number;
+  paymentMethod?: string;
   items: string;
   notes?: string | null;
   status: string;
@@ -64,6 +67,8 @@ export default function HotelReportsPage() {
     summary: {
       totalRevenue: number;
       grossSales?: number;
+      cashRevenue?: number;
+      onlineRevenue?: number;
       totalDiscounts?: number;
       totalExpenses: number;
       netProfit: number;
@@ -99,6 +104,9 @@ export default function HotelReportsPage() {
     income: number;
     expenses: number;
     closingBalance: number;
+    cashSales?: number;
+    onlineSales?: number;
+    cashExpenses?: number;
     notes: string;
     isClosed?: boolean;
   } | null>(null);
@@ -123,6 +131,7 @@ export default function HotelReportsPage() {
 
   // Order Records & Receipt Modal state
   const [orderSearchQuery, setOrderSearchQuery] = useState('');
+  const [recordPaymentFilter, setRecordPaymentFilter] = useState<'all' | 'cash' | 'online'>('all');
   const [selectedReceiptOrder, setSelectedReceiptOrder] = useState<OrderData | null>(null);
   const [isReceiptModalOpen, setIsReceiptModalOpen] = useState(false);
   const [hotelName, setHotelName] = useState('digitalizemenu Restaurant');
@@ -149,6 +158,7 @@ export default function HotelReportsPage() {
       items: record.items,
       totalAmount: record.totalAmount,
       discountAmount: record.discountAmount,
+      paymentMethod: record.paymentMethod || 'cash',
       notes: record.notes || undefined,
       status: (record.status === 'settled' ? 'done' : record.status) as any,
       createdAt: record.createdAt,
@@ -318,8 +328,12 @@ export default function HotelReportsPage() {
   const { summary, topItems, dailyTrends, expenses = [], categoryBreakdown = [], orderRecords = [] } = reports;
   const maxDailySale = Math.max(...dailyTrends.map((d) => d.sales), 100);
 
-  // Filter order records based on search query
+  // Filter order records based on payment filter & search query
   const filteredOrderRecords = orderRecords.filter((record) => {
+    const isOnline = (record.paymentMethod || '').toLowerCase().includes('online');
+    if (recordPaymentFilter === 'cash' && isOnline) return false;
+    if (recordPaymentFilter === 'online' && !isOnline) return false;
+
     if (!orderSearchQuery.trim()) return true;
     const q = orderSearchQuery.toLowerCase().trim();
     const matchTable = `table ${record.tableNumber}`.toLowerCase().includes(q) || record.tableNumber.toLowerCase().includes(q);
@@ -327,12 +341,22 @@ export default function HotelReportsPage() {
     const matchPhone = record.customerPhone?.toLowerCase().includes(q);
     const matchId = record.id.toLowerCase().includes(q);
     const matchItems = record.items?.toLowerCase().includes(q);
-    return matchTable || matchCustomer || matchPhone || matchId || matchItems;
+    const matchPayment = (record.paymentMethod || '').toLowerCase().includes(q);
+    return matchTable || matchCustomer || matchPhone || matchId || matchItems || matchPayment;
   });
 
   const totalRecordsRevenue = filteredOrderRecords.reduce((sum, r) => sum + r.totalAmount, 0);
   const totalRecordsDiscounts = filteredOrderRecords.reduce((sum, r) => sum + (r.discountAmount || 0), 0);
   const totalRecordsGross = totalRecordsRevenue + totalRecordsDiscounts;
+  const totalRecordsCash = filteredOrderRecords
+    .filter((r) => !(r.paymentMethod || '').toLowerCase().includes('online'))
+    .reduce((sum, r) => sum + r.totalAmount, 0);
+  const totalRecordsOnline = filteredOrderRecords
+    .filter((r) => (r.paymentMethod || '').toLowerCase().includes('online'))
+    .reduce((sum, r) => sum + r.totalAmount, 0);
+
+  const allCashCount = orderRecords.filter((r) => !(r.paymentMethod || '').toLowerCase().includes('online')).length;
+  const allOnlineCount = orderRecords.filter((r) => (r.paymentMethod || '').toLowerCase().includes('online')).length;
 
   // Dynamic automatic register calculations: Closing = Opening + Income - Expenses
   const currentOpening = parseFloat(openingInput) || 0;
@@ -754,13 +778,53 @@ export default function HotelReportsPage() {
             </p>
           </div>
 
-          {/* Quick Search Bar */}
-          <div className="flex items-center gap-3">
-            <div className="relative min-w-[260px]">
+          {/* Quick Filters: Cash vs Online + Search */}
+          <div className="flex flex-wrap items-center gap-2.5">
+            {/* Payment Method Filter Pills */}
+            <div className="flex items-center p-1 bg-stone-900 border border-white/10 rounded-xl text-xs">
+              <button
+                type="button"
+                onClick={() => setRecordPaymentFilter('all')}
+                className={`px-3 py-1.5 rounded-lg font-bold transition ${
+                  recordPaymentFilter === 'all'
+                    ? 'bg-gold-500/20 text-gold-300 shadow-sm'
+                    : 'text-stone-400 hover:text-white'
+                }`}
+              >
+                All ({orderRecords.length})
+              </button>
+              <button
+                type="button"
+                onClick={() => setRecordPaymentFilter('cash')}
+                className={`px-3 py-1.5 rounded-lg font-bold flex items-center space-x-1.5 transition ${
+                  recordPaymentFilter === 'cash'
+                    ? 'bg-emerald-500/20 text-emerald-300 shadow-sm'
+                    : 'text-stone-400 hover:text-emerald-300'
+                }`}
+              >
+                <Banknote className="w-3.5 h-3.5" />
+                <span>Cash ({allCashCount})</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setRecordPaymentFilter('online')}
+                className={`px-3 py-1.5 rounded-lg font-bold flex items-center space-x-1.5 transition ${
+                  recordPaymentFilter === 'online'
+                    ? 'bg-cyan-500/20 text-cyan-300 shadow-sm'
+                    : 'text-stone-400 hover:text-cyan-300'
+                }`}
+              >
+                <Smartphone className="w-3.5 h-3.5" />
+                <span>Online Payment ({allOnlineCount})</span>
+              </button>
+            </div>
+
+            {/* Quick Search Bar */}
+            <div className="relative min-w-[220px]">
               <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-stone-500" />
               <input
                 type="text"
-                placeholder="Search table, guest, item, ID..."
+                placeholder="Search table, guest, cash/online..."
                 value={orderSearchQuery}
                 onChange={(e) => setOrderSearchQuery(e.target.value)}
                 className="w-full pl-9 pr-8 py-2 bg-stone-900 border border-white/10 rounded-xl text-xs text-white placeholder-stone-500 focus:outline-none focus:border-gold-400"
@@ -777,10 +841,10 @@ export default function HotelReportsPage() {
           </div>
         </div>
 
-        {/* Mini metric summary banner */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 p-3.5 rounded-2xl bg-[#0a0b0d] border border-white/[0.05]">
+        {/* Mini metric summary banner with Cash vs Online breakdown */}
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 p-3.5 rounded-2xl bg-[#0a0b0d] border border-white/[0.05]">
           <div className="px-3 py-1.5">
-            <span className="text-[10px] uppercase font-bold text-stone-400 block">Orders Logged</span>
+            <span className="text-[10px] uppercase font-bold text-stone-400 block">Orders Shown</span>
             <span className="text-base font-serif font-black text-white">{filteredOrderRecords.length}</span>
           </div>
           <div className="px-3 py-1.5 border-l border-white/5">
@@ -788,14 +852,16 @@ export default function HotelReportsPage() {
             <span className="text-base font-serif font-bold text-stone-300">{formatNPR(totalRecordsGross)}</span>
           </div>
           <div className="px-3 py-1.5 border-l border-white/5">
-            <span className="text-[10px] uppercase font-bold text-amber-400 block">Discounts Given</span>
-            <span className="text-base font-serif font-bold text-amber-400">
-              {totalRecordsDiscounts > 0 ? `-${formatNPR(totalRecordsDiscounts)}` : 'Rs. 0'}
-            </span>
+            <span className="text-[10px] uppercase font-bold text-emerald-400 block">Cash Sales</span>
+            <span className="text-base font-serif font-bold text-emerald-400">{formatNPR(totalRecordsCash)}</span>
           </div>
           <div className="px-3 py-1.5 border-l border-white/5">
-            <span className="text-[10px] uppercase font-bold text-emerald-400 block">Net Collected</span>
-            <span className="text-base font-serif font-black text-emerald-400">{formatNPR(totalRecordsRevenue)}</span>
+            <span className="text-[10px] uppercase font-bold text-cyan-400 block">Online Payment Sales</span>
+            <span className="text-base font-serif font-bold text-cyan-400">{formatNPR(totalRecordsOnline)}</span>
+          </div>
+          <div className="px-3 py-1.5 border-l border-white/5">
+            <span className="text-[10px] uppercase font-bold text-gold-400 block">Total Collected</span>
+            <span className="text-base font-serif font-black text-gold-300">{formatNPR(totalRecordsRevenue)}</span>
           </div>
         </div>
 
@@ -829,6 +895,7 @@ export default function HotelReportsPage() {
                   <th className="pb-3 px-3 text-right">Subtotal</th>
                   <th className="pb-3 px-3 text-right">Discount</th>
                   <th className="pb-3 px-3 text-right">Total Paid</th>
+                  <th className="pb-3 px-3 text-center">Payment</th>
                   <th className="pb-3 px-3 text-center">Status</th>
                   <th className="pb-3 px-3 text-right print:hidden">Receipt</th>
                 </tr>
@@ -837,6 +904,7 @@ export default function HotelReportsPage() {
                 {filteredOrderRecords.map((record) => {
                   const itemsList = parseOrderItems(record.items);
                   const orderSubtotal = (record.totalAmount || 0) + (record.discountAmount || 0);
+                  const isOnlinePayment = String(record.paymentMethod || '').toLowerCase().includes('online');
 
                   return (
                     <tr key={record.id} className="hover:bg-stone-900/40 transition">
@@ -904,6 +972,21 @@ export default function HotelReportsPage() {
                       {/* Total Paid */}
                       <td className="py-3.5 px-3 text-right font-serif font-black text-emerald-400 text-sm whitespace-nowrap">
                         {formatNPR(record.totalAmount)}
+                      </td>
+
+                      {/* Payment Method Badge */}
+                      <td className="py-3.5 px-3 text-center whitespace-nowrap">
+                        {isOnlinePayment ? (
+                          <span className="px-2.5 py-1 rounded-xl bg-cyan-500/15 text-cyan-300 border border-cyan-500/30 font-bold text-[11px] inline-flex items-center space-x-1.5 shadow-sm">
+                            <Smartphone className="w-3 h-3 text-cyan-400" />
+                            <span>Online Payment</span>
+                          </span>
+                        ) : (
+                          <span className="px-2.5 py-1 rounded-xl bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 font-bold text-[11px] inline-flex items-center space-x-1.5 shadow-sm">
+                            <Banknote className="w-3 h-3 text-emerald-400" />
+                            <span>Cash</span>
+                          </span>
+                        )}
                       </td>
 
                       {/* Status */}
@@ -1388,6 +1471,7 @@ export default function HotelReportsPage() {
                   <th className="py-1">Table</th>
                   <th className="py-1">Guest</th>
                   <th className="py-1">Dishes Ordered</th>
+                  <th className="py-1 text-center">Payment</th>
                   <th className="py-1 text-right">Gross</th>
                   <th className="py-1 text-right">Discount</th>
                   <th className="py-1 text-right">Total Paid</th>
@@ -1397,6 +1481,7 @@ export default function HotelReportsPage() {
                 {orderRecords.map((rec) => {
                   const recItems = parseOrderItems(rec.items);
                   const subtotalVal = (rec.totalAmount || 0) + (rec.discountAmount || 0);
+                  const isOnline = String(rec.paymentMethod || '').toLowerCase().includes('online');
                   return (
                     <tr key={rec.id} className="border-b border-gray-200">
                       <td className="py-1 font-mono">
@@ -1406,6 +1491,9 @@ export default function HotelReportsPage() {
                       <td className="py-1">{rec.customerName}</td>
                       <td className="py-1 max-w-[220px] truncate">
                         {recItems.map((it) => `${it.quantity}x ${it.name}`).join(', ') || 'Items'}
+                      </td>
+                      <td className="py-1 text-center font-bold uppercase text-[10px]">
+                        {isOnline ? 'Online Payment' : 'Cash'}
                       </td>
                       <td className="py-1 text-right font-mono">{formatNPR(subtotalVal)}</td>
                       <td className="py-1 text-right font-mono text-amber-800">
